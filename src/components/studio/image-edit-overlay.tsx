@@ -238,7 +238,7 @@ export function ImageEditOverlay(props: {
       ) : (
         <div className="relative mx-auto min-h-0 flex-1 px-3">
           <div className="relative mx-auto inline-block max-h-full max-w-full" onClick={props.mode === "comment" ? addPin : undefined}>
-            <img ref={imgRef} src={props.url} alt="" className="max-h-[50vh] w-auto max-w-full rounded-2xl object-contain" />
+            <img ref={imgRef} src={props.url} alt="" className="max-h-[36vh] w-auto max-w-full rounded-2xl object-contain" />
             {props.mode === "paint" ? (
               <canvas
                 ref={canvasRef}
@@ -324,9 +324,9 @@ export function ImageEditOverlay(props: {
       ) : null}
 
       {props.mode === "comment" ? (
-        <div className="max-h-[28vh] shrink-0 space-y-2 overflow-y-auto px-3 py-2">
+        <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-3 py-2">
           {pins.length === 0 ? (
-            <p className="text-xs text-muted-foreground">Fotoğrafa dokunup not numarası bırakın. Her numaraya ayrı açıklama yazın.</p>
+            <p className="text-xs text-muted-foreground">Fotoğrafa dokunun. Açıklamalar fotoğrafın altında kalır.</p>
           ) : (
             pins.map((p) => (
               <label key={p.id} className="flex items-center gap-2">
@@ -334,7 +334,7 @@ export function ImageEditOverlay(props: {
                 <input
                   value={p.text}
                   onChange={(e) => setPins((cur) => cur.map((x) => (x.id === p.id ? { ...x, text: e.target.value } : x)))}
-                  placeholder={`Not ${p.id} — ne değişsin?`}
+                  placeholder={`Not ${p.id}`}
                   className="h-11 min-w-0 flex-1 rounded-full bg-card px-4 text-base shadow-[var(--shadow-border)]"
                 />
               </label>

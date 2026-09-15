@@ -1,6 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { ArrowUpRight } from "lucide-react";
 import { Shell } from "@/components/layout/shell";
+import { IstanbulMap } from "@/components/map/istanbul-map";
 import { Button } from "@/components/ui/button";
 import { LISTINGS, REGIONS, SITE, STEPS } from "@/lib/site";
 
@@ -20,7 +21,7 @@ function HomePage() {
                 {SITE.tagline}
               </h1>
               <p className="mt-5 max-w-md text-pretty text-base text-muted-foreground sm:text-lg">
-                Müteahhit portföyünü tek noktada toplarız. Beklentiniz ve bütçeniz okunur; beş bölgedeki
+                Müteahhit portföyünü tek noktada toplarız. Beklentiniz ve bütçeniz okunur;
                 uygun projeler sunulur. Fiyat–performans netleşince beğendiğiniz daire yerinde görülür.
               </p>
               <div className="mt-8 flex flex-wrap gap-3">
@@ -47,8 +48,18 @@ function HomePage() {
 
         <section className="border-t border-border">
           <div className="mx-auto max-w-[1280px] px-4 py-10 sm:px-6">
+            <p className="text-kicker uppercase tracking-kicker text-muted-foreground">Harita</p>
+            <h2 className="mt-1 font-display text-3xl font-medium sm:text-4xl">Konumlar.</h2>
+            <div className="mt-6">
+              <IstanbulMap />
+            </div>
+          </div>
+        </section>
+
+        <section className="border-t border-border">
+          <div className="mx-auto max-w-[1280px] px-4 py-10 sm:px-6">
             <p className="text-kicker uppercase tracking-kicker text-muted-foreground">Bölgeler</p>
-            <h2 className="mt-1 font-display text-3xl font-medium sm:text-4xl">Çalıştığımız hat.</h2>
+            <h2 className="mt-1 font-display text-3xl font-medium sm:text-4xl">Çalıştığımız bölgeler.</h2>
             <ul className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
               {REGIONS.map((r) => (
                 <li key={r.id}>

@@ -1,14 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { generateStudioImage, startStudioVideo } from "@/lib/ai";
-import { originOk, rateOk, tokenOk } from "@/lib/api-security";
-
-function gate(token: string, origin?: string) {
-  if (!tokenOk(token)) return "Yetkisiz. API anahtarı veya ekip kodu gerekli.";
-  if (!originOk(origin)) return "Bu kaynak izinli değil.";
-  if (!rateOk(token)) return "İstek limiti aşıldı. Bir dakika bekleyin.";
-  return null;
-}
 
 const imageIn = z.object({
   token: z.string().min(8),
@@ -22,6 +14,7 @@ const imageIn = z.object({
 export const apiGenerateImage = createServerFn({ method: "POST" })
   .validator((input: unknown) => imageIn.parse(input))
   .handler(async ({ data }) => {
+    const { gate } = await import("@/lib/api-security.server");
     const err = gate(data.token, data.origin);
     if (err) return { ok: false as const, error: err };
     return generateStudioImage({
@@ -46,6 +39,7 @@ const videoIn = z.object({
 export const apiStartVideo = createServerFn({ method: "POST" })
   .validator((input: unknown) => videoIn.parse(input))
   .handler(async ({ data }) => {
+    const { gate } = await import("@/lib/api-security.server");
     const err = gate(data.token, data.origin);
     if (err) return { ok: false as const, error: err };
     return startStudioVideo({

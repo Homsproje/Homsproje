@@ -1,40 +1,55 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { toast } from "sonner";
 import { Shell } from "@/components/layout/shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { ALL_ROOMS, REGIONS, ROOM_OPTIONS, SITE, type RegionId } from "@/lib/site";
+import { loadForm, type FormConfig } from "@/lib/form-store";
+import { SITE, type RegionId } from "@/lib/site";
 
 export const Route = createFileRoute("/iletisim")({
   validateSearch: (search: Record<string, unknown>): { bolge?: RegionId; daire?: string } => {
-    const bolge = REGIONS.some((r) => r.id === search.bolge) ? (search.bolge as RegionId) : undefined;
+    const bolge = typeof search.bolge === "string" ? (search.bolge as RegionId) : undefined;
     const daire = typeof search.daire === "string" ? search.daire : undefined;
     return { ...(bolge ? { bolge } : {}), ...(daire ? { daire } : {}) };
   },
   component: ContactPage,
 });
 
+function toggle(list: string[], id: string) {
+  return list.includes(id) ? list.filter((x) => x !== id) : [...list, id];
+}
+
 function ContactPage() {
   const { bolge, daire } = Route.useSearch();
+  const [cfg, setCfg] = useState<FormConfig | null>(null);
   const [sent, setSent] = useState(false);
-  const [region, setRegion] = useState<string>(bolge ?? "");
-  const rooms = useMemo(
-    () => (region && region in ROOM_OPTIONS ? ROOM_OPTIONS[region as RegionId] : ALL_ROOMS),
-    [region],
-  );
+  const [regions, setRegions] = useState<string[]>(bolge ? [bolge] : []);
+  const [rooms, setRooms] = useState<string[]>([]);
+  const [budgets, setBudgets] = useState<string[]>([]);
+  const [purposes, setPurposes] = useState<string[]>([]);
+  const [extra, setExtra] = useState<Record<string, string[]>>({});
+
+  useEffect(() => {
+    const f = loadForm();
+    setCfg(f);
+  }, []);
 
   function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    if (!cfg) return;
     const data = new FormData(e.currentTarget);
     const lead = {
       name: String(data.get("name") ?? "").trim(),
       email: String(data.get("email") ?? "").trim(),
       phone: String(data.get("phone") ?? "").trim(),
-      region: String(data.get("region") ?? ""),
-      rooms: String(data.get("rooms") ?? ""),
+      regions,
+      rooms,
+      budgets,
+      purposes,
+      extra,
       listing: daire ?? "",
       message: String(data.get("message") ?? "").trim(),
       at: new Date().toISOString(),
@@ -46,9 +61,28 @@ function ContactPage() {
     const prev = JSON.parse(localStorage.getItem("homs-leads") || "[]") as unknown[];
     localStorage.setItem("homs-leads", JSON.stringify([lead, ...prev].slice(0, 80)));
     setSent(true);
-    toast("Talebiniz alındı. En kısa sürede dönüş yapacağız.");
+    toast("Talebiniz alındı.");
+    const wa = cfg.whatsapp.replace(/\D/g, "");
+    if (wa) {
+      const body = [
+        `Homs Proje talep`,
+        `Ad: ${lead.name}`,
+        `Tel: ${lead.phone}`,
+        lead.email ? `E-posta: ${lead.email}` : "",
+        regions.length ? `Bölge: ${regions.join(", ")}` : "",
+        rooms.length ? `Plan: ${rooms.join(", ")}` : "",
+        budgets.length ? `Bütçe: ${budgets.join(", ")}` : "",
+        purposes.length ? `Amaç: ${purposes.join(", ")}` : "",
+        lead.message,
+      ]
+        .filter(Boolean)
+        .join("\n");
+      window.open(`https://wa.me/${wa}?text=${encodeURIComponent(body)}`, "_blank");
+    }
     e.currentTarget.reset();
   }
+
+  if (!cfg) return null;
 
   return (
     <Shell>
@@ -57,8 +91,8 @@ function ContactPage() {
           <p className="text-kicker uppercase tracking-kicker text-muted-foreground">İletişim</p>
           <h1 className="mt-2 font-display text-4xl font-medium sm:text-5xl">Beklentinizi yazın.</h1>
           <p className="mt-4 max-w-md text-muted-foreground">
-            Bölge, plan tipi ve nasıl yaşamak istediğinizi iletin. Size uyan projeleri hazırlar,
-            fiyat–performans üzerinden değerlendiririz. Beğenilen daire yerinde incelenir.
+            Birden fazla bölge ve plan seçebilirsiniz. Size uyan projeleri hazırlar, fiyat–performans üzerinden
+            değerlendiririz. Beğenilen daire yerinde incelenir.
           </p>
           <dl className="mt-8 space-y-4 text-sm">
             <div>
@@ -73,14 +107,10 @@ function ContactPage() {
               <dt className="text-kicker uppercase tracking-kicker text-muted-foreground">Yer</dt>
               <dd className="mt-1">{SITE.city}</dd>
             </div>
-            <div>
-              <dt className="text-kicker uppercase tracking-kicker text-muted-foreground">Hat</dt>
-              <dd className="mt-1">{REGIONS.map((r) => r.name).join(" · ")}</dd>
-            </div>
           </dl>
         </div>
 
-        <form onSubmit={onSubmit} className="space-y-4 rounded-3xl bg-card p-5 shadow-[var(--shadow-border)] sm:p-6">
+        <form onSubmit={onSubmit} className="space-y-5 rounded-3xl bg-card p-5 shadow-[var(--shadow-border)] sm:p-6">
           <div className="space-y-2">
             <Label htmlFor="name">Ad</Label>
             <Input id="name" name="name" autoComplete="name" required />
@@ -95,51 +125,97 @@ function ContactPage() {
               <Input id="email" name="email" type="email" autoComplete="email" />
             </div>
           </div>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="region">Bölge</Label>
-              <select
-                id="region"
-                name="region"
-                value={region}
-                onChange={(e) => setRegion(e.target.value)}
-                className="flex h-11 w-full rounded-lg bg-card px-3 text-sm shadow-[var(--shadow-border)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                <option value="">Fark etmez</option>
-                {REGIONS.map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.name}
-                  </option>
-                ))}
-              </select>
+
+          <fieldset>
+            <legend className="mb-2 text-sm font-medium">Bölgeler — birden fazla</legend>
+            <div className="flex flex-wrap gap-1.5">
+              {cfg.regions.map((r) => (
+                <button
+                  key={r.id}
+                  type="button"
+                  onClick={() => setRegions((c) => toggle(c, r.id))}
+                  className={`h-9 rounded-full px-3 text-sm ${regions.includes(r.id) ? "bg-foreground text-background" : "bg-muted"}`}
+                >
+                  {r.name}
+                </button>
+              ))}
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="rooms">Plan tipi</Label>
-              <select
-                id="rooms"
-                name="rooms"
-                className="flex h-11 w-full rounded-lg bg-card px-3 text-sm shadow-[var(--shadow-border)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                defaultValue=""
-              >
-                <option value="">Fark etmez</option>
-                {rooms.map((r) => (
-                  <option key={r} value={r}>
-                    {r}
-                  </option>
-                ))}
-              </select>
+          </fieldset>
+
+          <fieldset>
+            <legend className="mb-2 text-sm font-medium">Plan tipi — birden fazla</legend>
+            <div className="flex flex-wrap gap-1.5">
+              {cfg.rooms.map((r) => (
+                <button
+                  key={r}
+                  type="button"
+                  onClick={() => setRooms((c) => toggle(c, r))}
+                  className={`h-9 rounded-full px-3 text-sm ${rooms.includes(r) ? "bg-foreground text-background" : "bg-muted"}`}
+                >
+                  {r}
+                </button>
+              ))}
             </div>
-          </div>
+          </fieldset>
+
+          <fieldset>
+            <legend className="mb-2 text-sm font-medium">Bütçe aralığı</legend>
+            <div className="flex flex-wrap gap-1.5">
+              {cfg.budgets.map((r) => (
+                <button
+                  key={r}
+                  type="button"
+                  onClick={() => setBudgets((c) => toggle(c, r))}
+                  className={`h-9 rounded-full px-3 text-sm ${budgets.includes(r) ? "bg-foreground text-background" : "bg-muted"}`}
+                >
+                  {r}
+                </button>
+              ))}
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend className="mb-2 text-sm font-medium">Daire alım amacı</legend>
+            <div className="flex flex-wrap gap-1.5">
+              {cfg.purposes.map((r) => (
+                <button
+                  key={r}
+                  type="button"
+                  onClick={() => setPurposes((c) => toggle(c, r))}
+                  className={`h-9 rounded-full px-3 text-sm ${purposes.includes(r) ? "bg-foreground text-background" : "bg-muted"}`}
+                >
+                  {r}
+                </button>
+              ))}
+            </div>
+          </fieldset>
+
+          {cfg.extra.map((q) => (
+            <fieldset key={q.id}>
+              <legend className="mb-2 text-sm font-medium">{q.label}</legend>
+              <div className="flex flex-wrap gap-1.5">
+                {q.options.map((o) => (
+                  <button
+                    key={o}
+                    type="button"
+                    onClick={() =>
+                      setExtra((c) => ({ ...c, [q.id]: toggle(c[q.id] ?? [], o) }))
+                    }
+                    className={`h-9 rounded-full px-3 text-sm ${(extra[q.id] ?? []).includes(o) ? "bg-foreground text-background" : "bg-muted"}`}
+                  >
+                    {o}
+                  </button>
+                ))}
+              </div>
+            </fieldset>
+          ))}
+
           <div className="space-y-2">
             <Label htmlFor="message">Nasıl yaşamak istiyorsunuz?</Label>
-            <Textarea
-              id="message"
-              name="message"
-              placeholder="Aile, yatırım, sessizlik, merkeze yakınlık, bütçe aralığı…"
-            />
+            <Textarea id="message" name="message" placeholder="Aile, sessizlik, merkeze yakınlık…" />
           </div>
           <Button type="submit" className="w-full" size="lg">
-            {sent ? "Gönderildi — yenisi" : "Talep bırak"}
+            {sent ? "Gönderildi — yenisi" : cfg.whatsapp ? "WhatsApp ile gönder" : "Talep bırak"}
           </Button>
         </form>
       </main>

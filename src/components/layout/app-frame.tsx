@@ -1,4 +1,5 @@
 import { type ReactNode } from "react";
+import { BrowserChrome } from "@/components/layout/chrome";
 import { StaffGate } from "@/components/layout/staff-gate";
 import { useVisualViewport } from "@/lib/use-visual-viewport";
 
@@ -10,7 +11,8 @@ export function AppFrame({ children }: { children: ReactNode }) {
         className="flex w-full max-w-full flex-col overflow-hidden bg-background text-foreground"
         style={{ position: "fixed", left: 0, right: 0, top: box.top, height: box.height }}
       >
-        {children}
+        <BrowserChrome />
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{children}</div>
       </div>
     </StaffGate>
   );

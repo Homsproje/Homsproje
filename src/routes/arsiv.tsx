@@ -5,7 +5,6 @@ import { AppFrame } from "@/components/layout/app-frame";
 import { Button } from "@/components/ui/button";
 import { downloadBrandedImage, downloadUrl, fileBase } from "@/lib/export";
 import { lockStaff } from "@/lib/staff";
-import { formatDate } from "@/lib/utils";
 import { useStudio } from "@/store/studio";
 
 export const Route = createFileRoute("/arsiv")({ component: ArchivePage });
@@ -14,6 +13,12 @@ function ArchivePage() {
   const navigate = useNavigate();
   const projects = useStudio((s) => s.projects);
   const chats = projects.filter((p) => (p.thread ?? []).some((t) => t.url) && !p.id.startsWith("demo-"));
+  const photos = chats.flatMap((p) =>
+    (p.thread ?? []).filter((t) => t.kind === "image" && t.url).map((t) => ({ ...t, title: p.title, pid: p.id })),
+  );
+  const videos = chats.flatMap((p) =>
+    (p.thread ?? []).filter((t) => t.kind === "video" && t.url).map((t) => ({ ...t, title: p.title, pid: p.id })),
+  );
 
   async function save(url: string, kind: "image" | "video", title: string, clips?: string[]) {
     const base = fileBase(kind, title);
@@ -37,9 +42,9 @@ function ArchivePage() {
               ← App
             </Link>
             <Link to="/entegrasyon" className="ml-3 text-sm text-muted-foreground">
-              API
+              Ayarlar
             </Link>
-            <h1 className="font-display text-3xl font-medium">Sohbetler</h1>
+            <h1 className="font-display text-3xl font-medium">Dosyalar</h1>
           </div>
           <button
             type="button"
@@ -52,51 +57,44 @@ function ArchivePage() {
             Çıkış
           </button>
         </div>
-        {chats.length === 0 ? (
-          <p className="mt-4 text-sm text-muted-foreground">Henüz sohbet yok.</p>
+
+        <h2 className="mt-6 text-sm font-medium">Fotoğraflar</h2>
+        {photos.length === 0 ? (
+          <p className="mt-2 text-sm text-muted-foreground">Henüz fotoğraf yok.</p>
         ) : (
-          <ul className="mt-6 space-y-3">
-            {chats.map((p) => {
-              const cover = p.assets[0] ?? p.thread.find((t) => t.url);
-              const n = p.assets.length || (p.thread ?? []).filter((t) => t.url).length;
-              return (
-                <li key={p.id}>
-                  <Link
-                    to="/app"
-                    search={{ id: p.id }}
-                    className="flex gap-3 overflow-hidden rounded-2xl bg-card shadow-[var(--shadow-border)]"
-                  >
-                    {cover?.url ? (
-                      cover.kind === "video" ? (
-                        <video src={cover.url} muted playsInline className="h-20 w-28 shrink-0 object-cover" />
-                      ) : (
-                        <img src={cover.url} alt="" className="h-20 w-28 shrink-0 object-cover" />
-                      )
-                    ) : (
-                      <div className="h-20 w-28 shrink-0 bg-muted" />
-                    )}
-                    <div className="min-w-0 flex-1 py-3 pr-2">
-                      <p className="truncate text-sm font-medium">{p.title}</p>
-                      <p className="text-kicker uppercase tracking-kicker text-muted-foreground">
-                        {n} içerik · {formatDate(p.updatedAt)}
-                      </p>
-                    </div>
-                  </Link>
-                  {cover?.url && cover.kind ? (
-                    <div className="mt-1 flex justify-end">
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => void save(cover.url, cover.kind, p.title, cover.clips)}
-                      >
-                        <Download />
-                        İndir
-                      </Button>
-                    </div>
-                  ) : null}
-                </li>
-              );
-            })}
+          <ul className="mt-3 grid grid-cols-2 gap-2">
+            {photos.map((t) => (
+              <li key={t.id} className="overflow-hidden rounded-2xl bg-card shadow-[var(--shadow-border)]">
+                <Link to="/app" search={{ id: t.pid }}>
+                  <img src={t.url} alt="" className="aspect-[4/3] w-full object-cover" />
+                </Link>
+                <div className="flex items-center justify-between px-2 py-1">
+                  <p className="truncate text-[0.7rem]">{t.title}</p>
+                  <Button size="sm" variant="ghost" onClick={() => void save(t.url!, "image", t.title)}>
+                    <Download />
+                  </Button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        <h2 className="mt-8 text-sm font-medium">Videolar</h2>
+        {videos.length === 0 ? (
+          <p className="mt-2 text-sm text-muted-foreground">Henüz video yok.</p>
+        ) : (
+          <ul className="mt-3 space-y-2">
+            {videos.map((t) => (
+              <li key={t.id} className="overflow-hidden rounded-2xl bg-card shadow-[var(--shadow-border)]">
+                <video src={t.url} controls playsInline className="aspect-video w-full bg-muted" />
+                <div className="flex items-center justify-between px-2 py-1">
+                  <p className="truncate text-[0.7rem]">{t.title}</p>
+                  <Button size="sm" variant="ghost" onClick={() => void save(t.url!, "video", t.title, t.clips)}>
+                    <Download />
+                  </Button>
+                </div>
+              </li>
+            ))}
           </ul>
         )}
       </main>

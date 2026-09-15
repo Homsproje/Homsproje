@@ -103,7 +103,7 @@ export const STEPS = [
   {
     n: "02",
     t: "Uygun projeler",
-    d: "Beş bölgedeki portföyden beklentiye ve bütçeye uyan daireler seçilir.",
+    d: "Portföyden beklentiye ve bütçeye uyan daireler seçilir.",
   },
   {
     n: "03",

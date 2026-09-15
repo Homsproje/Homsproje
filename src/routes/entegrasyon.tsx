@@ -7,6 +7,8 @@ import { getApiSecurity, rotateApiKey, saveApiSecurity, updateStaffPin } from "@
 import { apiGenerateImage } from "@/lib/homs-api";
 import { asOk } from "@/lib/safe";
 import { getStaffPin, setSessionMode, setStaffPin, sessionMode } from "@/lib/staff";
+import { DEFAULT_FORM, loadForm, saveForm, type FormConfig } from "@/lib/form-store";
+import { DEFAULT_PINS, loadPins, savePins, type MapPin } from "@/lib/map-store";
 import { SITE } from "@/lib/site";
 
 export const Route = createFileRoute("/entegrasyon")({ component: Page });
@@ -30,6 +32,9 @@ function Page() {
   const [sess, setSess] = useState<"local" | "session">("local");
   const [savedAt, setSavedAt] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState<FormConfig>(DEFAULT_FORM);
+  const [pins, setPins] = useState<MapPin[]>(DEFAULT_PINS);
+  const [newQ, setNewQ] = useState("");
   const [busy, setBusy] = useState(false);
   const [testUrl, setTestUrl] = useState<string | null>(null);
 
@@ -38,6 +43,8 @@ function Page() {
       setDrive(localStorage.getItem(DRIVE_KEY) ?? "");
       setApiKey(localStorage.getItem(API_KEY) ?? "");
       setSess(sessionMode());
+      setForm(loadForm());
+      setPins(loadPins());
     } catch {
       /* ignore */
     }
@@ -233,6 +240,99 @@ function Page() {
         <pre className="mt-2 overflow-x-auto rounded-2xl bg-muted p-3 text-[0.7rem]">{snippetIframe(origin)}</pre>
         <Button size="sm" className="mt-2" variant="outline" onClick={() => copy(snippetIframe(origin))}>
           iframe kopyala
+        </Button>
+
+        <h2 className="mt-6 text-sm font-medium">Talep formu</h2>
+        <p className="mt-1 text-xs text-muted-foreground">Bölge, plan, bütçe ve sorular. Sitedeki talep buna göre değişir.</p>
+        <label className="mt-3 block text-xs text-muted-foreground">WhatsApp (ülke kodu ile, boş bırakılabilir)</label>
+        <input
+          value={form.whatsapp}
+          onChange={(e) => setForm({ ...form, whatsapp: e.target.value })}
+          placeholder="905xxxxxxxxx"
+          className="mt-1 h-11 w-full rounded-full bg-card px-4 text-base shadow-[var(--shadow-border)]"
+        />
+        <label className="mt-3 block text-xs text-muted-foreground">Bütçeler (virgül)</label>
+        <input
+          value={form.budgets.join(", ")}
+          onChange={(e) => setForm({ ...form, budgets: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })}
+          className="mt-1 h-11 w-full rounded-full bg-card px-4 text-base shadow-[var(--shadow-border)]"
+        />
+        <label className="mt-3 block text-xs text-muted-foreground">Plan tipleri (virgül)</label>
+        <input
+          value={form.rooms.join(", ")}
+          onChange={(e) => setForm({ ...form, rooms: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })}
+          className="mt-1 h-11 w-full rounded-full bg-card px-4 text-base shadow-[var(--shadow-border)]"
+        />
+        <label className="mt-3 block text-xs text-muted-foreground">Yeni soru</label>
+        <div className="mt-1 flex gap-2">
+          <input
+            value={newQ}
+            onChange={(e) => setNewQ(e.target.value)}
+            placeholder="Örn. Kaç kişilik hane?"
+            className="h-11 min-w-0 flex-1 rounded-full bg-card px-4 text-base shadow-[var(--shadow-border)]"
+          />
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              if (!newQ.trim()) return;
+              setForm({
+                ...form,
+                extra: [...form.extra, { id: `q-${Date.now()}`, label: newQ.trim(), options: ["Evet", "Hayır"] }],
+              });
+              setNewQ("");
+            }}
+          >
+            Ekle
+          </Button>
+        </div>
+        <Button
+          size="sm"
+          className="mt-3"
+          onClick={() => {
+            saveForm(form);
+            toast("Talep formu kaydedildi");
+          }}
+        >
+          Formu kaydet
+        </Button>
+
+        <h2 className="mt-6 text-sm font-medium">Harita pinleri</h2>
+        <ul className="mt-2 space-y-2">
+          {pins.map((p, i) => (
+            <li key={p.id} className="rounded-2xl bg-card px-3 py-2 text-sm shadow-[var(--shadow-border)]">
+              <p className="font-medium">{p.title}</p>
+              <div className="mt-1 grid grid-cols-2 gap-2">
+                <input
+                  value={p.lat}
+                  onChange={(e) => {
+                    const next = pins.map((x, n) => (n === i ? { ...x, lat: Number(e.target.value) || x.lat } : x));
+                    setPins(next);
+                  }}
+                  className="h-10 rounded-full bg-muted px-3 text-base"
+                />
+                <input
+                  value={p.lng}
+                  onChange={(e) => {
+                    const next = pins.map((x, n) => (n === i ? { ...x, lng: Number(e.target.value) || x.lng } : x));
+                    setPins(next);
+                  }}
+                  className="h-10 rounded-full bg-muted px-3 text-base"
+                />
+              </div>
+            </li>
+          ))}
+        </ul>
+        <Button
+          size="sm"
+          className="mt-2"
+          variant="outline"
+          onClick={() => {
+            savePins(pins);
+            toast("Konumlar kaydedildi");
+          }}
+        >
+          Pinleri kaydet
         </Button>
 
         <h2 className="mt-6 text-sm font-medium">Drive</h2>

@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import { Menu, X } from "lucide-react";
+import { BrowserChrome } from "@/components/layout/chrome";
 import { BrandLogo } from "@/components/layout/logo";
 import { cn } from "@/lib/utils";
 import { NAV, SITE } from "@/lib/site";
@@ -18,8 +19,9 @@ export function Shell({
 
   return (
     <div className={cn("min-h-dvh bg-background text-foreground", className)}>
-      <header className="sticky top-0 z-40 border-b border-border bg-background pt-14">
-        <div className="mx-auto flex h-16 max-w-[1280px] items-center justify-between gap-3 px-4 sm:px-6">
+      <header className="sticky top-0 z-40 border-b border-border bg-background pt-12">
+        <BrowserChrome />
+        <div className="mx-auto flex h-14 max-w-[1280px] items-center justify-between gap-3 px-4 sm:px-6">
           <BrandLogo to="/site" />
           <nav className="hidden items-center gap-1 lg:flex">
             {NAV.map((item) => (

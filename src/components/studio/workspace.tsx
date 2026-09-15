@@ -63,6 +63,20 @@ const DURATIONS = [
   { sec: 60, label: "1 dk" },
   { sec: 90, label: "1:30" },
   { sec: 120, label: "2 dk" },
+  { sec: 180, label: "3 dk" },
+  { sec: 240, label: "4 dk" },
+  { sec: 300, label: "5 dk" },
+] as const;
+
+const JOBS = [
+  { id: "furnish", label: "Mobilya ile döşe", text: "Boş odayı mobilya ile döşe. Orijinal kadraj, mimari ve ışık kalsın. Yeni oda uydurma." },
+  { id: "empty", label: "Odayı boşalt", text: "Mobilyaları kaldır, boş listing fotoğrafı. Kadraj ve mimari aynı kalsın." },
+  { id: "render", label: "Render oluştur", text: "Aynı mekânın yüksek kaliteli mimari CGI renderı." },
+  { id: "plan", label: "Kat planı", text: "Bu daire için fotogerçekçi 3D kat planı, etiketli." },
+  { id: "sketch", label: "Kroki çiz", text: "Temiz mimari kroki, ölçekli çizgi." },
+  { id: "i2v", label: "Fotoğrafı videoya", video: true },
+  { id: "vedit", label: "Videoyu düzenle", video: true },
+  { id: "v2i", label: "Videoyu fotoğrafa", text: "Bu iç mekânın net, tek kare listing fotoğrafı." },
 ] as const;
 
 async function waitForVideo(requestId: string) {
@@ -126,7 +140,7 @@ export function Workspace({ chatIdFromUrl }: { chatIdFromUrl?: string }) {
   const [dlPanel, setDlPanel] = useState(false);
   const [editor, setEditor] = useState<null | "paint" | "comment" | "resize">(null);
   const [picks, setPicks] = useState<string[]>([]);
-  const [phase, setPhase] = useState<Record<string, "edit" | "review" | "done">>({});
+  const [phase, setPhase] = useState<Record<string, "ask" | "edit" | "done">>({});
   const [openFmt, setOpenFmt] = useState<"aspect" | "quality" | "gen" | null>(null);
   const [listening, setListening] = useState(false);
   const [hintShift, setHintShift] = useState(0);
@@ -201,11 +215,12 @@ export function Workspace({ chatIdFromUrl }: { chatIdFromUrl?: string }) {
     setBusy("image");
     setProgress("Görsel…");
     const id = ensureChat(instruction);
-    remember(id, { role: "user", text: /Şunları|Not \d|Apply |Edit ONLY|Kadraj|Revize/.test(instruction) ? "Revize" : instruction });
+    const silent = /Şunları|Not \d|Apply |Edit ONLY|Kadraj|^Revize/.test(instruction);
+    if (!silent) remember(id, { role: "user", text: instruction });
     const cmd = parseCommand(instruction);
     const ar = cmd.aspect ?? aspectFrom(instruction, aspect);
     try {
-      const shotCount = Math.min(4, Math.max(1, count));
+      const shotCount = 1;
       const { rooms, refs } = splitSources(sources, shotCount);
       const lastImg = [...turns].reverse().find((t) => t.kind === "image" && t.url)?.url;
       const resultUrl =
@@ -287,7 +302,7 @@ export function Workspace({ chatIdFromUrl }: { chatIdFromUrl?: string }) {
           url: res.url,
           kind: "image",
         });
-        setPhase((p) => ({ ...p, [saved.id]: revising ? "done" : "edit" }));
+        setPhase((p) => ({ ...p, [saved.id]: "ask" }));
         setMenu("ai");
         setPicks([]);
         setMenu(null);
@@ -314,7 +329,7 @@ export function Workspace({ chatIdFromUrl }: { chatIdFromUrl?: string }) {
     setBusy("video");
     const id = ensureChat(instruction);
     remember(id, { role: "user", text: instruction });
-    const scenes = Math.min(4, Math.max(1, Math.ceil(Math.min(duration, 60) / 15)));
+    const scenes = Math.min(20, Math.max(1, Math.ceil(Math.min(duration, 300) / 15)));
     const clipLen = Math.min(15, duration);
     const ar = aspectFrom(instruction, aspect);
     const made: string[] = [];
@@ -463,12 +478,35 @@ export function Workspace({ chatIdFromUrl }: { chatIdFromUrl?: string }) {
       <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
         <ol className="mx-auto flex max-w-2xl flex-col gap-4 pb-3">
           {turns.length === 0 ? (
-            <li className="rounded-2xl bg-card px-4 py-5 text-sm shadow-[var(--shadow-border)]">
-              <p className="font-medium">Homs Proje App</p>
-              <p className="mt-1 text-muted-foreground">Boş oda yükleyin, döşeyin, videoya çevirin.</p>
-              <Link to="/entegrasyon" className="mt-3 inline-flex h-9 items-center rounded-full bg-foreground px-4 text-sm text-background">
-                API güvenlik
-              </Link>
+            <li className="space-y-3">
+              <p className="text-sm text-muted-foreground">Ne yapmak istiyorsunuz?</p>
+              <div className="grid grid-cols-2 gap-2">
+                {JOBS.map((j) => (
+                  <button
+                    key={j.id}
+                    type="button"
+                    className="rounded-2xl bg-card px-3 py-4 text-left text-sm shadow-[var(--shadow-border)]"
+                    onClick={() => {
+                      if ("video" in j && j.video) {
+                        if (selected?.url) openVideo(selected.url);
+                        else toast("Önce bir görsel üretin veya yükleyin.");
+                        return;
+                      }
+                      if ("text" in j && j.text) {
+                        if (j.id === "furnish" || j.id === "empty" || j.id === "render") {
+                          if (!sources.length && !selected?.url) {
+                            toast("Önce oda fotoğrafı yükleyin.");
+                            return;
+                          }
+                        }
+                        void runImages(j.text, selected?.url);
+                      }
+                    }}
+                  >
+                    {j.label}
+                  </button>
+                ))}
+              </div>
             </li>
           ) : null}
           {turns.map((t) => (
@@ -495,7 +533,7 @@ export function Workspace({ chatIdFromUrl }: { chatIdFromUrl?: string }) {
                     if (selectedId === t.id) setFullUrl(t.url!);
                     else {
                       setSelectedId(t.id);
-                      setPhase((p) => ({ ...p, [t.id]: p[t.id] ?? "edit" }));
+                      setPhase((p) => ({ ...p, [t.id]: p[t.id] ?? "ask" }));
                     }
                   }}
                 >
@@ -523,7 +561,7 @@ export function Workspace({ chatIdFromUrl }: { chatIdFromUrl?: string }) {
                         type="button"
                         onClick={() => {
                           setSelectedId(id);
-                          setPhase((p) => ({ ...p, [id]: p[id] ?? "edit" }));
+                          setPhase((p) => ({ ...p, [id]: p[id] ?? "ask" }));
                         }}
                         className={`grid size-9 place-items-center rounded-full text-sm ${
                           (selectedId ?? toolId) === id ? "bg-foreground text-background" : "bg-card shadow-[var(--shadow-border)]"
@@ -536,7 +574,7 @@ export function Workspace({ chatIdFromUrl }: { chatIdFromUrl?: string }) {
                 ) : null}
                 <ImageTools
                   turn={t}
-                  phase={phase[t.id] ?? "edit"}
+                  phase={phase[t.id] ?? "ask"}
                   menu={menu}
                   picks={picks}
                   hintShift={hintShift}
@@ -611,6 +649,7 @@ export function Workspace({ chatIdFromUrl }: { chatIdFromUrl?: string }) {
                     })();
                   }}
                 />
+                {(phase[t.id] ?? "ask") === "edit" ? (
                 <ChatActions
                   onEdit={() => {
                     setSelectedId(t.id);
@@ -645,6 +684,7 @@ export function Workspace({ chatIdFromUrl }: { chatIdFromUrl?: string }) {
                     })();
                   }}
                 />
+                ) : null}
                 </>
               ) : t.role === "assistant" && t.kind === "video" && t.url ? (
                 <div className="mt-2">
@@ -691,24 +731,8 @@ export function Workspace({ chatIdFromUrl }: { chatIdFromUrl?: string }) {
                 className="inline-flex h-7 items-center gap-1 rounded-full bg-card px-2.5 text-[0.7rem] shadow-[var(--shadow-border)]"
               >
                 <KeyRound className="size-3.5" />
-                API
+                Ayarlar
               </Link>
-              <span className="text-[0.65rem] text-muted-foreground">Adet</span>
-              {[1, 2, 3, 4].map((n) => (
-                <button
-                  key={n}
-                  type="button"
-                  title={`${n} ayrı alternatif`}
-                  aria-label={`${n} alternatif görsel üret`}
-                  onClick={() => {
-                    setCount(n);
-                    setShot(n === 1 ? "1" : "2c");
-                  }}
-                  className={`grid size-7 place-items-center rounded-full text-xs ${count === n ? "bg-foreground text-background" : "bg-card shadow-[var(--shadow-border)]"}`}
-                >
-                  {n}
-                </button>
-              ))}
               <button
                 type="button"
                 onClick={() => setOpenFmt(openFmt === "aspect" ? null : "aspect")}
@@ -1057,7 +1081,7 @@ export function Workspace({ chatIdFromUrl }: { chatIdFromUrl?: string }) {
 
 function ImageTools(props: {
   turn: ChatTurn;
-  phase: "edit" | "review" | "done";
+  phase: "ask" | "edit" | "done";
   menu: CatalogId | null;
   picks: string[];
   hintShift: number;
@@ -1086,7 +1110,30 @@ function ImageTools(props: {
     ? group.hints.map((_, i) => group.hints[(i + props.hintShift) % group.hints.length])
     : [];
 
-  if (props.phase === "review" || props.phase === "done") {
+  if (props.phase === "ask") {
+    return (
+      <div className="mt-2 flex gap-2">
+        <button
+          type="button"
+          className="grid size-11 place-items-center rounded-full bg-foreground text-background"
+          onClick={props.onAccept}
+          aria-label="Beğendim"
+        >
+          <Check className="size-5" />
+        </button>
+        <button
+          type="button"
+          className="grid size-11 place-items-center rounded-full bg-card shadow-[var(--shadow-border)]"
+          onClick={props.onReject}
+          aria-label="Revize"
+        >
+          <X className="size-5" />
+        </button>
+      </div>
+    );
+  }
+
+  if (props.phase === "done") {
     return (
       <div className="mt-2 space-y-2">
         <div className="flex flex-wrap gap-1.5">
