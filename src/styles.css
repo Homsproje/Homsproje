@@ -1,0 +1,96 @@
+@import "tailwindcss";
+
+
+@theme {
+  --color-background: #fef8ec;
+  --color-foreground: #2c1a0e;
+  --color-card: #fffbf4;
+  --color-muted: #f3e6d2;
+  --color-muted-foreground: #7a5c42;
+  --color-subtle: #a07a58;
+  --color-primary: #5c3a1e;
+  --color-primary-foreground: #fef8ec;
+  --color-secondary: #f3e6d2;
+  --color-secondary-foreground: #2c1a0e;
+  --color-border: color-mix(in oklab, #2c1a0e 12%, transparent);
+  --color-ring: #5c3a1e;
+  --color-accent: #a97e53;
+  --color-accent-foreground: #fef8ec;
+
+  --font-sans: "Outfit", "Segoe UI", system-ui, sans-serif;
+  --font-display: "Cormorant Garamond", "Times New Roman", serif;
+
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+  --radius-2xl: 32px;
+
+  --shadow-border:
+    0px 0px 0px 1px rgba(27, 26, 23, 0.08),
+    0px 1px 2px -1px rgba(27, 26, 23, 0.06),
+    0px 2px 8px 0px rgba(27, 26, 23, 0.04);
+  --shadow-border-hover:
+    0px 0px 0px 1px rgba(27, 26, 23, 0.12),
+    0px 2px 8px -1px rgba(27, 26, 23, 0.08);
+
+  --text-kicker: 0.6875rem;
+  --text-display: clamp(2.6rem, 8vw, 5.4rem);
+  --tracking-kicker: 0.16em;
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+
+
+  --motion-quick: 150ms;
+  --motion-fast: 250ms;
+  --motion-slow: 400ms;
+}
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overflow-x: hidden;
+    max-width: 100%;
+  }
+
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+
+  body {
+    background: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    line-height: 1.5;
+    overflow-x: hidden;
+    max-width: 100%;
+  }
+
+  h1, h2, h3 {
+    text-wrap: balance;
+    font-family: var(--font-display);
+    letter-spacing: -0.03em;
+    line-height: 1.12;
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+
+  img:not(.brand-logo), video {
+    outline: 1px solid rgba(44, 26, 14, 0.08);
+    outline-offset: -1px;
+  }
+
+  .brand-logo {
+    outline: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
