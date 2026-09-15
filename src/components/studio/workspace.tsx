@@ -12,6 +12,7 @@ import {
   startStudioVideo,
 } from "@/lib/ai";
 import { CATALOG, type CatalogId } from "@/lib/catalog";
+import { VIDEO_CATALOG, type VideoCatalogId } from "@/lib/video-catalog";
 import { downloadBrandedImage, downloadImageAspect, downloadUrl, fileBase } from "@/lib/export";
 import { errText } from "@/lib/error-component";
 import { scoreEmpty } from "@/lib/intent";
@@ -137,6 +138,7 @@ export function Workspace({ chatIdFromUrl }: { chatIdFromUrl?: string }) {
   const [endFrom, setEndFrom] = useState<string | null>(null);
   const [carousel, setCarousel] = useState<string[] | null>(null);
   const [menu, setMenu] = useState<CatalogId | null>(null);
+  const [vMenu, setVMenu] = useState<VideoCatalogId | null>(null);
   const [dlPanel, setDlPanel] = useState(false);
   const [editor, setEditor] = useState<null | "paint" | "comment" | "resize">(null);
   const [picks, setPicks] = useState<string[]>([]);
@@ -321,14 +323,19 @@ export function Workspace({ chatIdFromUrl }: { chatIdFromUrl?: string }) {
   }
 
   async function runVideo(instruction: string, fromUrl?: string) {
-    const still = fromUrl ?? videoFrom ?? selected?.url;
+    const still =
+      fromUrl ??
+      videoFrom ??
+      selected?.url ??
+      sources.find((s) => s.role === "room")?.url ??
+      sources[0]?.url;
     if (!still) {
-      toast.error("Videoya çevirmek için üretilen görsele dokunun.");
+      toast.error("Fotoğraf yükleyin.");
       return;
     }
     setBusy("video");
     const id = ensureChat(instruction);
-    remember(id, { role: "user", text: instruction });
+    if (!instruction.startsWith("Revize")) remember(id, { role: "user", text: instruction });
     const scenes = Math.min(20, Math.max(1, Math.ceil(Math.min(duration, 300) / 15)));
     const clipLen = Math.min(15, duration);
     const ar = aspectFrom(instruction, aspect);
@@ -376,14 +383,18 @@ export function Workspace({ chatIdFromUrl }: { chatIdFromUrl?: string }) {
         made.push(polled.url);
       }
       addAsset(id, { kind: "video", url: made[0], clips: made, prompt: instruction, view: "living" });
-      remember(id, {
+      const saved = remember(id, {
         role: "assistant",
         text: made.length > 1 ? `${made.length} sahne` : "",
         url: made[0],
         clips: made,
+        still,
         kind: "video",
         suggestions: undefined,
       });
+      setPhase((p) => ({ ...p, [saved.id]: "ask" }));
+      setPicks([]);
+      setVMenu(null);
     } catch (err) {
       toast.error(errText(err));
     } finally {
@@ -476,7 +487,7 @@ export function Workspace({ chatIdFromUrl }: { chatIdFromUrl?: string }) {
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
       <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
-        <ol className="mx-auto flex max-w-2xl flex-col gap-4 pb-3">
+        <div className="mx-auto flex max-w-2xl flex-col gap-4 pb-3">
           {turns.length === 0 ? (
             <li className="space-y-3">
               <p className="text-sm text-muted-foreground">Ne yapmak istiyorsunuz?</p>
@@ -487,19 +498,21 @@ export function Workspace({ chatIdFromUrl }: { chatIdFromUrl?: string }) {
                     type="button"
                     className="rounded-2xl bg-card px-3 py-4 text-left text-sm shadow-[var(--shadow-border)]"
                     onClick={() => {
+                      const still =
+                        sources.find((s) => s.role === "room")?.url ||
+                        sources[0]?.url ||
+                        selected?.url;
+                      setOpenFmt(null);
                       if ("video" in j && j.video) {
-                        if (selected?.url) openVideo(selected.url);
-                        else toast("Önce bir görsel üretin veya yükleyin.");
+                        if (!still) {
+                          toast("Fotoğraf yükleyin.");
+                          return;
+                        }
+                        openVideo(still);
                         return;
                       }
                       if ("text" in j && j.text) {
-                        if (j.id === "furnish" || j.id === "empty" || j.id === "render") {
-                          if (!sources.length && !selected?.url) {
-                            toast("Önce oda fotoğrafı yükleyin.");
-                            return;
-                          }
-                        }
-                        void runImages(j.text, selected?.url);
+                        void runImages(j.text, still);
                       }
                     }}
                   >
@@ -687,12 +700,31 @@ export function Workspace({ chatIdFromUrl }: { chatIdFromUrl?: string }) {
                 ) : null}
                 </>
               ) : t.role === "assistant" && t.kind === "video" && t.url ? (
-                <div className="mt-2">
-                  <Button size="sm" variant="outline" disabled={busy === "save"} onClick={() => void saveTurn(t)}>
-                    <Download />
-                    İndir
-                  </Button>
-                </div>
+                <VideoTools
+                  phase={phase[t.id] ?? "ask"}
+                  menu={vMenu}
+                  picks={picks}
+                  busy={Boolean(busy)}
+                  saving={busy === "save"}
+                  onMenu={setVMenu}
+                  onTogglePick={(h) => setPicks((c) => (c.includes(h) ? c.filter((x) => x !== h) : [...c, h]))}
+                  onApply={() => {
+                    const extra = picks.join(". ");
+                    void runVideo(`Revize video. ${extra}`, t.still || videoFrom || t.url);
+                  }}
+                  onAccept={() => setPhase((p) => ({ ...p, [t.id]: "done" }))}
+                  onReject={() => {
+                    setPhase((p) => ({ ...p, [t.id]: "edit" }));
+                    setVMenu("angle");
+                    setPicks([]);
+                  }}
+                  onDownload={() => void saveTurn(t)}
+                  onRevise={() => {
+                    setPhase((p) => ({ ...p, [t.id]: "edit" }));
+                    setVMenu("angle");
+                    setPicks([]);
+                  }}
+                />
               ) : null}
             </li>
           ))}
@@ -702,7 +734,7 @@ export function Workspace({ chatIdFromUrl }: { chatIdFromUrl?: string }) {
               {busy === "video" ? progress || "Video…" : progress || "Görsel…"}
             </li>
           ) : null}
-        </ol>
+        </div>
       </div>
 
       <form
@@ -1004,7 +1036,8 @@ export function Workspace({ chatIdFromUrl }: { chatIdFromUrl?: string }) {
               type="file"
               accept="image/*"
               multiple
-              className="hidden"
+              className="sr-only"
+              style={{ display: "none" }}
               onChange={(e) => {
                 if (e.target.files) void ingest(e.target.files);
                 e.target.value = "";
@@ -1075,6 +1108,82 @@ export function Workspace({ chatIdFromUrl }: { chatIdFromUrl?: string }) {
           </button>
         </div>
       ) : null}
+    </div>
+  );
+}
+
+function VideoTools(props: {
+  phase: "ask" | "edit" | "done";
+  menu: VideoCatalogId | null;
+  picks: string[];
+  busy: boolean;
+  saving: boolean;
+  onMenu: (id: VideoCatalogId) => void;
+  onTogglePick: (h: string) => void;
+  onApply: () => void;
+  onAccept: () => void;
+  onReject: () => void;
+  onDownload: () => void;
+  onRevise: () => void;
+}) {
+  const group = VIDEO_CATALOG.find((d) => d.id === props.menu);
+  if (props.phase === "ask") {
+    return (
+      <div className="mt-2 flex gap-2">
+        <button type="button" className="grid size-11 place-items-center rounded-full bg-foreground text-background" onClick={props.onAccept} aria-label="Beğendim">
+          <Check className="size-5" />
+        </button>
+        <button type="button" className="grid size-11 place-items-center rounded-full bg-card shadow-[var(--shadow-border)]" onClick={props.onReject} aria-label="Revize">
+          <X className="size-5" />
+        </button>
+      </div>
+    );
+  }
+  if (props.phase === "done") {
+    return (
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        <Button size="sm" variant="outline" disabled={props.saving} onClick={props.onDownload}>
+          <Download />
+          İndir
+        </Button>
+        <Button size="sm" variant="outline" onClick={props.onRevise}>
+          Revize
+        </Button>
+      </div>
+    );
+  }
+  return (
+    <div className="mt-2 space-y-2">
+      <div className="flex flex-wrap gap-1.5">
+        {VIDEO_CATALOG.map((d) => (
+          <button
+            key={d.id}
+            type="button"
+            onClick={() => props.onMenu(d.id)}
+            className={`h-7 rounded-full px-2.5 text-[0.7rem] ${props.menu === d.id ? "bg-foreground text-background" : "bg-card shadow-[var(--shadow-border)]"}`}
+          >
+            {d.label}
+          </button>
+        ))}
+      </div>
+      {group ? (
+        <div className="flex max-h-28 flex-wrap gap-1.5 overflow-y-auto">
+          {group.hints.map((h) => (
+            <button
+              key={h}
+              type="button"
+              onClick={() => props.onTogglePick(h)}
+              className={`h-7 rounded-full px-2.5 text-[0.7rem] ${props.picks.includes(h) ? "bg-foreground text-background" : "bg-muted"}`}
+            >
+              {h}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      {props.picks.length ? <p className="text-[0.7rem] text-muted-foreground">{props.picks.length} seçim</p> : null}
+      <button type="button" className="h-8 rounded-full bg-foreground px-3 text-xs text-background disabled:opacity-40" disabled={props.busy} onClick={props.onApply}>
+        Onayla
+      </button>
     </div>
   );
 }

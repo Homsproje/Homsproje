@@ -162,6 +162,22 @@ export const CATALOG = [
       "Mimari doğru kalsın",
     ],
   },
+  {
+    id: "forbid",
+    label: "Yapma",
+    hints: [
+      "Orijinal odaya sadık kal",
+      "Odanın şeklini değiştirme",
+      "Odaları birleştirme",
+      "Ekstra koridor açma",
+      "Balkon oluşturma",
+      "İki açıyı birleştirme",
+      "Yeni oda uydurma",
+      "Duvar silme",
+      "Pencere ekleme",
+      "Tavan yüksekliğini değiştirme",
+    ],
+  },
 ] as const;
 
 export type CatalogId = (typeof CATALOG)[number]["id"];

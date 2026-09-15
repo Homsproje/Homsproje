@@ -1,12 +1,16 @@
+import { useEffect, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { Shell } from "@/components/layout/shell";
 import { IstanbulMap } from "@/components/map/istanbul-map";
 import { Button } from "@/components/ui/button";
+import { loadProjects, type SiteProject } from "@/lib/site-projects";
 import { REGIONS } from "@/lib/site";
 
 export const Route = createFileRoute("/bolgeler")({ component: RegionsPage });
 
 function RegionsPage() {
+  const [projects, setProjects] = useState<SiteProject[]>([]);
+  useEffect(() => setProjects(loadProjects()), []);
   return (
     <Shell>
       <main className="mx-auto max-w-[1280px] px-4 py-10 sm:px-6 lg:py-14">
@@ -34,6 +38,24 @@ function RegionsPage() {
                 <p className="mt-1 text-sm text-muted-foreground">{r.line}</p>
                 <p className="mt-3 text-muted-foreground">{r.body}</p>
                 <p className="mt-3 text-sm">Plan tipleri: {r.rooms.join(" · ")}</p>
+                {projects
+                  .filter((p) => p.region === r.id)
+                  .map((p) => (
+                    <div key={p.id} className="mt-4">
+                      <p className="text-sm font-medium">{p.name}</p>
+                      <ul className="mt-2 grid grid-cols-2 gap-2">
+                        {p.clips.map((c) => (
+                          <li key={c.id}>
+                            {c.kind === "video" ? (
+                              <video src={c.url} controls playsInline className="w-full rounded-xl" />
+                            ) : (
+                              <img src={c.url} alt="" className="w-full rounded-xl object-cover" />
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
                 <Button asChild className="mt-6" variant="outline">
                   <Link to="/iletisim" search={{ bolge: r.id }}>
                     Bu bölge için yazın

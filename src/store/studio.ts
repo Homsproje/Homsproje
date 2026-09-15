@@ -22,6 +22,7 @@ export type ChatTurn = {
   text: string;
   url?: string;
   clips?: string[];
+  still?: string;
   kind?: AssetKind;
   suggestions?: string[];
   createdAt: string;

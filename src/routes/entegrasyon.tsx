@@ -5,10 +5,9 @@ import { AppFrame } from "@/components/layout/app-frame";
 import { Button } from "@/components/ui/button";
 import { getApiSecurity, rotateApiKey, saveApiSecurity, updateStaffPin } from "@/lib/api-security";
 import { apiGenerateImage } from "@/lib/homs-api";
+import { DEFAULT_PLANS, loadPlans, loadUsers, savePlans, type Plan } from "@/lib/members";
 import { asOk } from "@/lib/safe";
 import { getStaffPin, setSessionMode, setStaffPin, sessionMode } from "@/lib/staff";
-import { DEFAULT_FORM, loadForm, saveForm, type FormConfig } from "@/lib/form-store";
-import { DEFAULT_PINS, loadPins, savePins, type MapPin } from "@/lib/map-store";
 import { SITE } from "@/lib/site";
 
 export const Route = createFileRoute("/entegrasyon")({ component: Page });
@@ -32,19 +31,18 @@ function Page() {
   const [sess, setSess] = useState<"local" | "session">("local");
   const [savedAt, setSavedAt] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState<FormConfig>(DEFAULT_FORM);
-  const [pins, setPins] = useState<MapPin[]>(DEFAULT_PINS);
-  const [newQ, setNewQ] = useState("");
   const [busy, setBusy] = useState(false);
   const [testUrl, setTestUrl] = useState<string | null>(null);
+  const [plans, setPlans] = useState<Plan[]>(DEFAULT_PLANS);
+  const [users, setUsers] = useState(loadUsers());
 
   useEffect(() => {
     try {
       setDrive(localStorage.getItem(DRIVE_KEY) ?? "");
       setApiKey(localStorage.getItem(API_KEY) ?? "");
       setSess(sessionMode());
-      setForm(loadForm());
-      setPins(loadPins());
+      setPlans(loadPlans());
+      setUsers(loadUsers());
     } catch {
       /* ignore */
     }
@@ -153,10 +151,65 @@ function Page() {
         <Link to="/app" className="text-sm text-muted-foreground">
           ← App
         </Link>
-        <h1 className="mt-2 font-display text-3xl font-medium">API güvenlik</h1>
+        <h1 className="mt-2 font-display text-3xl font-medium">App ayarları</h1>
         <p className="mt-2 max-w-md text-sm text-muted-foreground">
-          Anahtar, izinli siteler, hız limiti ve kilit. Kod tarayıcıda saklanmaz; istekler anahtarla gider.
+          Üyelik, API, kullanıcılar. Site formu ve harita: Site → Yönetim.
         </p>
+
+        <h2 className="mt-6 text-sm font-medium">Üyelik planları</h2>
+        <ul className="mt-2 space-y-2">
+          {plans.map((p, i) => (
+            <li key={p.id} className="rounded-2xl bg-card px-3 py-2 text-sm shadow-[var(--shadow-border)]">
+              <input
+                value={p.name}
+                onChange={(e) => setPlans(plans.map((x, n) => (n === i ? { ...x, name: e.target.value } : x)))}
+                className="h-10 w-full rounded-full bg-muted px-3 text-base"
+              />
+              <div className="mt-1 grid grid-cols-2 gap-2">
+                <input
+                  type="number"
+                  value={p.price}
+                  onChange={(e) => setPlans(plans.map((x, n) => (n === i ? { ...x, price: Number(e.target.value) || 0 } : x)))}
+                  className="h-10 rounded-full bg-muted px-3 text-base"
+                />
+                <input
+                  type="number"
+                  value={p.days}
+                  onChange={(e) => setPlans(plans.map((x, n) => (n === i ? { ...x, days: Number(e.target.value) || 1 } : x)))}
+                  className="h-10 rounded-full bg-muted px-3 text-base"
+                />
+              </div>
+              <input
+                value={p.terms}
+                onChange={(e) => setPlans(plans.map((x, n) => (n === i ? { ...x, terms: e.target.value } : x)))}
+                className="mt-1 h-10 w-full rounded-full bg-muted px-3 text-base"
+              />
+            </li>
+          ))}
+        </ul>
+        <Button
+          size="sm"
+          className="mt-2"
+          onClick={() => {
+            savePlans(plans);
+            toast("Planlar kaydedildi");
+          }}
+        >
+          Planları kaydet
+        </Button>
+
+        <h2 className="mt-6 text-sm font-medium">Üyeler</h2>
+        {users.length === 0 ? (
+          <p className="mt-1 text-sm text-muted-foreground">Henüz üye yok.</p>
+        ) : (
+          <ul className="mt-2 space-y-1 text-sm">
+            {users.map((u) => (
+              <li key={u.email} className="rounded-xl bg-card px-3 py-2 shadow-[var(--shadow-border)]">
+                {u.name} · {u.email} · {u.plan} · {new Date(u.until).toLocaleDateString("tr-TR")}
+              </li>
+            ))}
+          </ul>
+        )}
 
         <h2 className="mt-6 text-sm font-medium">API anahtarı</h2>
         <p className="mt-1 break-all rounded-2xl bg-card px-4 py-3 text-sm shadow-[var(--shadow-border)]">
@@ -216,7 +269,7 @@ function Page() {
           {saving ? "Kaydediliyor…" : savedAt ? `Kaydedildi · ${savedAt}` : "Güvenliği kaydet"}
         </Button>
 
-        <h2 className="mt-6 text-sm font-medium">Giriş kodu</h2>
+        <h2 className="mt-6 text-sm font-medium">Yönetici kodu</h2>
         <input
           type="password"
           value={pin}
@@ -234,105 +287,11 @@ function Page() {
         <Button size="sm" variant="outline" className="mt-2" onClick={savePin}>
           Kodu değiştir
         </Button>
-        <p className="mt-2 text-xs text-muted-foreground">5 hatalı denemede 15 dk kilit. Kod ekranda gösterilmez.</p>
 
         <h2 className="mt-6 text-sm font-medium">homsproje.com</h2>
         <pre className="mt-2 overflow-x-auto rounded-2xl bg-muted p-3 text-[0.7rem]">{snippetIframe(origin)}</pre>
         <Button size="sm" className="mt-2" variant="outline" onClick={() => copy(snippetIframe(origin))}>
           iframe kopyala
-        </Button>
-
-        <h2 className="mt-6 text-sm font-medium">Talep formu</h2>
-        <p className="mt-1 text-xs text-muted-foreground">Bölge, plan, bütçe ve sorular. Sitedeki talep buna göre değişir.</p>
-        <label className="mt-3 block text-xs text-muted-foreground">WhatsApp (ülke kodu ile, boş bırakılabilir)</label>
-        <input
-          value={form.whatsapp}
-          onChange={(e) => setForm({ ...form, whatsapp: e.target.value })}
-          placeholder="905xxxxxxxxx"
-          className="mt-1 h-11 w-full rounded-full bg-card px-4 text-base shadow-[var(--shadow-border)]"
-        />
-        <label className="mt-3 block text-xs text-muted-foreground">Bütçeler (virgül)</label>
-        <input
-          value={form.budgets.join(", ")}
-          onChange={(e) => setForm({ ...form, budgets: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })}
-          className="mt-1 h-11 w-full rounded-full bg-card px-4 text-base shadow-[var(--shadow-border)]"
-        />
-        <label className="mt-3 block text-xs text-muted-foreground">Plan tipleri (virgül)</label>
-        <input
-          value={form.rooms.join(", ")}
-          onChange={(e) => setForm({ ...form, rooms: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })}
-          className="mt-1 h-11 w-full rounded-full bg-card px-4 text-base shadow-[var(--shadow-border)]"
-        />
-        <label className="mt-3 block text-xs text-muted-foreground">Yeni soru</label>
-        <div className="mt-1 flex gap-2">
-          <input
-            value={newQ}
-            onChange={(e) => setNewQ(e.target.value)}
-            placeholder="Örn. Kaç kişilik hane?"
-            className="h-11 min-w-0 flex-1 rounded-full bg-card px-4 text-base shadow-[var(--shadow-border)]"
-          />
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => {
-              if (!newQ.trim()) return;
-              setForm({
-                ...form,
-                extra: [...form.extra, { id: `q-${Date.now()}`, label: newQ.trim(), options: ["Evet", "Hayır"] }],
-              });
-              setNewQ("");
-            }}
-          >
-            Ekle
-          </Button>
-        </div>
-        <Button
-          size="sm"
-          className="mt-3"
-          onClick={() => {
-            saveForm(form);
-            toast("Talep formu kaydedildi");
-          }}
-        >
-          Formu kaydet
-        </Button>
-
-        <h2 className="mt-6 text-sm font-medium">Harita pinleri</h2>
-        <ul className="mt-2 space-y-2">
-          {pins.map((p, i) => (
-            <li key={p.id} className="rounded-2xl bg-card px-3 py-2 text-sm shadow-[var(--shadow-border)]">
-              <p className="font-medium">{p.title}</p>
-              <div className="mt-1 grid grid-cols-2 gap-2">
-                <input
-                  value={p.lat}
-                  onChange={(e) => {
-                    const next = pins.map((x, n) => (n === i ? { ...x, lat: Number(e.target.value) || x.lat } : x));
-                    setPins(next);
-                  }}
-                  className="h-10 rounded-full bg-muted px-3 text-base"
-                />
-                <input
-                  value={p.lng}
-                  onChange={(e) => {
-                    const next = pins.map((x, n) => (n === i ? { ...x, lng: Number(e.target.value) || x.lng } : x));
-                    setPins(next);
-                  }}
-                  className="h-10 rounded-full bg-muted px-3 text-base"
-                />
-              </div>
-            </li>
-          ))}
-        </ul>
-        <Button
-          size="sm"
-          className="mt-2"
-          variant="outline"
-          onClick={() => {
-            savePins(pins);
-            toast("Konumlar kaydedildi");
-          }}
-        >
-          Pinleri kaydet
         </Button>
 
         <h2 className="mt-6 text-sm font-medium">Drive</h2>

@@ -19,6 +19,7 @@ import { Route as HizmetlerRouteImport } from './routes/hizmetler'
 import { Route as IletisimRouteImport } from './routes/iletisim'
 import { Route as PortfoyRouteImport } from './routes/portfoy'
 import { Route as SiteRouteImport } from './routes/site'
+import { Route as SiteYonetimRouteImport } from './routes/site-yonetim'
 import { Route as StudioRouteImport } from './routes/studio'
 import { Route as TaleplerRouteImport } from './routes/talepler'
 import { Route as TekniklerRouteImport } from './routes/teknikler'
@@ -75,6 +76,11 @@ const SiteRoute = SiteRouteImport.update({
   path: '/site',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SiteYonetimRoute = SiteYonetimRouteImport.update({
+  id: '/site-yonetim',
+  path: '/site-yonetim',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const StudioRoute = StudioRouteImport.update({
   id: '/studio',
   path: '/studio',
@@ -112,6 +118,7 @@ export interface FileRoutesByFullPath {
   '/iletisim': typeof IletisimRoute
   '/portfoy': typeof PortfoyRouteWithChildren
   '/site': typeof SiteRoute
+  '/site-yonetim': typeof SiteYonetimRoute
   '/studio': typeof StudioRoute
   '/talepler': typeof TaleplerRoute
   '/teknikler': typeof TekniklerRoute
@@ -129,6 +136,7 @@ export interface FileRoutesByTo {
   '/iletisim': typeof IletisimRoute
   '/portfoy': typeof PortfoyRouteWithChildren
   '/site': typeof SiteRoute
+  '/site-yonetim': typeof SiteYonetimRoute
   '/studio': typeof StudioRoute
   '/talepler': typeof TaleplerRoute
   '/teknikler': typeof TekniklerRoute
@@ -147,6 +155,7 @@ export interface FileRoutesById {
   '/iletisim': typeof IletisimRoute
   '/portfoy': typeof PortfoyRouteWithChildren
   '/site': typeof SiteRoute
+  '/site-yonetim': typeof SiteYonetimRoute
   '/studio': typeof StudioRoute
   '/talepler': typeof TaleplerRoute
   '/teknikler': typeof TekniklerRoute
@@ -166,6 +175,7 @@ export interface FileRouteTypes {
     | '/iletisim'
     | '/portfoy'
     | '/site'
+    | '/site-yonetim'
     | '/studio'
     | '/talepler'
     | '/teknikler'
@@ -183,6 +193,7 @@ export interface FileRouteTypes {
     | '/iletisim'
     | '/portfoy'
     | '/site'
+    | '/site-yonetim'
     | '/studio'
     | '/talepler'
     | '/teknikler'
@@ -200,6 +211,7 @@ export interface FileRouteTypes {
     | '/iletisim'
     | '/portfoy'
     | '/site'
+    | '/site-yonetim'
     | '/studio'
     | '/talepler'
     | '/teknikler'
@@ -218,6 +230,7 @@ export interface RootRouteChildren {
   IletisimRoute: typeof IletisimRoute
   PortfoyRoute: typeof PortfoyRouteWithChildren
   SiteRoute: typeof SiteRoute
+  SiteYonetimRoute: typeof SiteYonetimRoute
   StudioRoute: typeof StudioRoute
   TaleplerRoute: typeof TaleplerRoute
   TekniklerRoute: typeof TekniklerRoute
@@ -296,6 +309,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SiteRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/site-yonetim': {
+      id: '/site-yonetim'
+      path: '/site-yonetim'
+      fullPath: '/site-yonetim'
+      preLoaderRoute: typeof SiteYonetimRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/studio': {
       id: '/studio'
       path: '/studio'
@@ -356,6 +376,7 @@ const rootRouteChildren: RootRouteChildren = {
   IletisimRoute: IletisimRoute,
   PortfoyRoute: PortfoyRouteWithChildren,
   SiteRoute: SiteRoute,
+  SiteYonetimRoute: SiteYonetimRoute,
   StudioRoute: StudioRoute,
   TaleplerRoute: TaleplerRoute,
   TekniklerRoute: TekniklerRoute,

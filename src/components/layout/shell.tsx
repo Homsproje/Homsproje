@@ -109,6 +109,11 @@ export function SiteFooter() {
               </a>
             </li>
             <li>{SITE.domain}</li>
+            <li>
+              <Link to="/site-yonetim" className="text-foreground hover:text-muted-foreground">
+                Yönetim
+              </Link>
+            </li>
           </ul>
         </div>
       </div>
