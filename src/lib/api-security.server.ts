@@ -1,21 +1,23 @@
-import { createHash, randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { STAFF_CODE } from "@/lib/staff";
+import {
+  extraLiveKeys,
+  hashValue,
+  pinMatches,
+  staffSecret,
+  stableLiveKey,
+} from "@/lib/staff-secret.server";
 
 export type SecFile = {
   keyHashes: string[];
   origins: string[];
   rpm: number;
-  pinHash?: string;
 };
 
 const FILE = join(process.cwd(), "data", "homs-security.json");
 const hits = new Map<string, { n: number; t: number }>();
 
-export function hash(value: string) {
-  return createHash("sha256").update(value).digest("hex");
-}
+export const hash = hashValue;
 
 export function load(): SecFile {
   try {
@@ -29,21 +31,23 @@ export function load(): SecFile {
 }
 
 export function save(data: SecFile) {
-  mkdirSync(dirname(FILE), { recursive: true });
-  writeFileSync(FILE, JSON.stringify(data, null, 2));
+  try {
+    mkdirSync(dirname(FILE), { recursive: true });
+    writeFileSync(FILE, JSON.stringify(data, null, 2));
+  } catch {
+    /* serverless fs may be read-only */
+  }
 }
 
 export function staffOk(pin: string) {
-  const n = pin.replace(/\s+/g, "");
-  if (n === STAFF_CODE) return true;
-  const s = load();
-  if (s.pinHash && s.pinHash === hash(n)) return true;
-  return s.keyHashes.includes(hash(n));
+  return pinMatches(pin);
 }
 
 export function tokenOk(token: string) {
   const t = token.replace(/\s+/g, "");
-  if (t === STAFF_CODE) return true;
+  if (pinMatches(t)) return true;
+  if (t === stableLiveKey()) return true;
+  if (extraLiveKeys().includes(t)) return true;
   return load().keyHashes.includes(hash(t));
 }
 
@@ -88,5 +92,9 @@ export function gate(token: string, origin?: string) {
 }
 
 export function newApiKey() {
-  return `homs_live_${randomBytes(18).toString("hex")}`;
+  return stableLiveKey();
+}
+
+export function currentSecretHint() {
+  return staffSecret().length >= 4;
 }

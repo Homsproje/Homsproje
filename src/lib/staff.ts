@@ -1,30 +1,12 @@
-const KEY = "homs-staff-v3";
-const PIN_KEY = "homs-pin";
+const KEY = "homs-staff-v4";
 const FAIL_KEY = "homs-staff-fail";
 const SESSION_KEY = "homs-session-mode";
-export const STAFF_CODE = "Homs3369063";
 
 let memory = false;
 
 function emit() {
   if (typeof window === "undefined") return;
   window.dispatchEvent(new Event("homs-staff"));
-}
-
-export function getStaffPin() {
-  if (typeof window === "undefined") return STAFF_CODE;
-  try {
-    return window.localStorage.getItem(PIN_KEY) || STAFF_CODE;
-  } catch {
-    return STAFF_CODE;
-  }
-}
-
-export function setStaffPin(next: string) {
-  const n = next.replace(/\s+/g, "");
-  if (n.length < 8) return false;
-  window.localStorage.setItem(PIN_KEY, n);
-  return true;
 }
 
 export function sessionMode(): "local" | "session" {
@@ -65,21 +47,7 @@ export function isStaffSession() {
   }
 }
 
-export function unlockStaff(code: string) {
-  const wait = lockRemaining();
-  if (wait > 0) return false;
-  const n = code.replace(/\s+/g, "");
-  if (n !== getStaffPin()) {
-    const f = failState();
-    const nFail = f.n + 1;
-    const until = nFail >= 5 ? Date.now() + 15 * 60_000 : 0;
-    try {
-      window.localStorage.setItem(FAIL_KEY, JSON.stringify({ n: nFail, until }));
-    } catch {
-      /* ignore */
-    }
-    return false;
-  }
+function markUnlocked() {
   memory = true;
   try {
     window.localStorage.removeItem(FAIL_KEY);
@@ -90,7 +58,38 @@ export function unlockStaff(code: string) {
     /* private mode */
   }
   emit();
+}
+
+function markFail() {
+  const f = failState();
+  const nFail = f.n + 1;
+  const until = nFail >= 5 ? Date.now() + 15 * 60_000 : 0;
+  try {
+    window.localStorage.setItem(FAIL_KEY, JSON.stringify({ n: nFail, until }));
+  } catch {
+    /* ignore */
+  }
+}
+
+export async function unlockStaff(code: string) {
+  const wait = lockRemaining();
+  if (wait > 0) return false;
+  const { unlockStaffRemote } = await import("@/lib/staff-auth");
+  const res = await unlockStaffRemote({ data: { code } });
+  if (!res.ok) {
+    markFail();
+    return false;
+  }
+  markUnlocked();
   return true;
+}
+
+export async function hydrateStaffSession() {
+  const { staffRemoteOk } = await import("@/lib/staff-auth");
+  const res = await staffRemoteOk();
+  if (res.ok) markUnlocked();
+  else lockStaff();
+  return res.ok;
 }
 
 export function lockStaff() {
@@ -101,6 +100,7 @@ export function lockStaff() {
   } catch {
     /* ignore */
   }
+  void import("@/lib/staff-auth").then((m) => m.lockStaffRemote()).catch(() => {});
   emit();
 }
 
