@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { isMemberOk, loadPlans, loginMember, signupMember } from "@/lib/members";
-import { isStaffSession, lockRemaining, subscribeStaff, unlockStaff } from "@/lib/staff";
+import { hydrateStaffSession, isStaffSession, lockRemaining, subscribeStaff, unlockStaff } from "@/lib/staff";
 import { SITE } from "@/lib/site";
 import { useVisualViewport } from "@/lib/use-visual-viewport";
 
@@ -15,6 +15,7 @@ export function MemberGate({ children }: { children: ReactNode }) {
   useEffect(() => {
     const tick = () => setOk(isMemberOk() || isStaffSession());
     tick();
+    void hydrateStaffSession().then(() => tick());
     setReady(true);
     return subscribeStaff(tick);
   }, []);
@@ -31,9 +32,10 @@ function MembershipScreen({ onOk }: { onOk: () => void }) {
   const [email, setEmail] = useState("");
   const [pass, setPass] = useState("");
   const [name, setName] = useState("");
-  const [plan, setPlan] = useState(plans[1]?.id ?? "aylik");
+  const [plan, setPlan] = useState(plans.find((p) => p.id !== "trial")?.id ?? "aylik");
   const [err, setErr] = useState("");
   const [code, setCode] = useState("");
+  const [busy, setBusy] = useState(false);
 
   return (
     <main
@@ -50,18 +52,6 @@ function MembershipScreen({ onOk }: { onOk: () => void }) {
           </Button>
           <Button className="w-full" size="lg" variant="outline" onClick={() => setMode("signup")}>
             Üyelik oluştur
-          </Button>
-          <Button
-            className="w-full"
-            size="lg"
-            variant="outline"
-            onClick={() => {
-              const res = signupMember("Deneme", `trial-${Date.now()}@homsproje.com`, "trial123", "trial");
-              if (res.ok) onOk();
-              else setErr(res.error);
-            }}
-          >
-            Ücretsiz kullan (3 gün)
           </Button>
           <button type="button" className="block w-full pt-3 text-sm text-muted-foreground" onClick={() => setMode("admin")}>
             Yönetici
@@ -150,15 +140,19 @@ function MembershipScreen({ onOk }: { onOk: () => void }) {
           className="mt-6 w-full max-w-xs space-y-3"
           onSubmit={(e) => {
             e.preventDefault();
-            if (unlockStaff(code)) onOk();
-            else setErr(lockRemaining() > 0 ? "Kilitli." : "Kod eşleşmedi.");
+            setBusy(true);
+            void unlockStaff(code).then((ok) => {
+              setBusy(false);
+              if (ok) onOk();
+              else setErr(lockRemaining() > 0 ? "Kilitli." : "Kod eşleşmedi.");
+            });
           }}
         >
           <Label>Yönetici kodu</Label>
           <Input className="text-base" type="password" value={code} onChange={(e) => setCode(e.target.value)} />
           {err ? <p className="text-sm text-muted-foreground">{err}</p> : null}
-          <Button className="w-full" type="submit">
-            Giriş
+          <Button className="w-full" type="submit" disabled={busy}>
+            {busy ? "…" : "Giriş"}
           </Button>
           <button type="button" className="text-sm text-muted-foreground" onClick={() => setMode("home")}>
             Geri

@@ -3,7 +3,8 @@ import { z } from "zod";
 
 export const getApiSecurity = createServerFn({ method: "GET" }).handler(async () => {
   const sess = await import("@/lib/staff-session.server");
-  const { load, stableLiveKey } = await import("@/lib/api-security.server");
+  const { load } = await import("@/lib/api-security.server");
+  const { stableLiveKey } = await import("@/lib/staff-secret.server");
   const s = load();
   const staff = await sess.staffCookieOk();
   return {

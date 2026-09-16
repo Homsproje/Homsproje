@@ -3,7 +3,7 @@ import { Link } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { isStaffSession, lockRemaining, subscribeStaff, unlockStaff } from "@/lib/staff";
+import { hydrateStaffSession, isStaffSession, lockRemaining, subscribeStaff, unlockStaff } from "@/lib/staff";
 import { SITE } from "@/lib/site";
 import { useVisualViewport } from "@/lib/use-visual-viewport";
 
@@ -13,7 +13,10 @@ export function StaffGate({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     setOk(isStaffSession());
-    setReady(true);
+    void hydrateStaffSession().then((v) => {
+      setOk(v || isStaffSession());
+      setReady(true);
+    });
     return subscribeStaff(() => setOk(isStaffSession()));
   }, []);
 
@@ -27,13 +30,18 @@ export function StaffGate({ children }: { children: ReactNode }) {
 function StaffLogin() {
   const [code, setCode] = useState("");
   const [error, setError] = useState(false);
+  const [busy, setBusy] = useState(false);
   const box = useVisualViewport();
 
   function tryUnlock() {
-    if (unlockStaff(code)) return;
-    const wait = lockRemaining();
-    setError(true);
-    if (wait > 0) setCode("");
+    setBusy(true);
+    void unlockStaff(code).then((ok) => {
+      setBusy(false);
+      if (!ok) {
+        setError(true);
+        if (lockRemaining() > 0) setCode("");
+      }
+    });
   }
 
   return (
@@ -74,8 +82,8 @@ function StaffLogin() {
             {lockRemaining() > 0 ? `5 hatalı deneme. ${Math.ceil(lockRemaining() / 60)} dk kilit.` : "Kod eşleşmedi."}
           </p>
         )}
-        <Button type="button" className="w-full" size="lg" onClick={tryUnlock}>
-          Giriş
+        <Button type="button" className="w-full" size="lg" disabled={busy} onClick={tryUnlock}>
+          {busy ? "…" : "Giriş"}
         </Button>
       </form>
       <a
