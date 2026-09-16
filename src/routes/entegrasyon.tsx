@@ -3,11 +3,11 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { AppFrame } from "@/components/layout/app-frame";
 import { Button } from "@/components/ui/button";
-import { getApiSecurity, rotateApiKey, saveApiSecurity, updateStaffPin } from "@/lib/api-security";
+import { getApiSecurity, rotateApiKey, saveApiSecurity } from "@/lib/api-security";
 import { apiGenerateImage } from "@/lib/homs-api";
 import { DEFAULT_PLANS, loadPlans, loadUsers, savePlans, type Plan } from "@/lib/members";
 import { asOk } from "@/lib/safe";
-import { getStaffPin, setSessionMode, setStaffPin, sessionMode } from "@/lib/staff";
+import { setSessionMode, sessionMode } from "@/lib/staff";
 import { SITE } from "@/lib/site";
 
 export const Route = createFileRoute("/entegrasyon")({ component: Page });
@@ -27,7 +27,6 @@ function Page() {
   const [origins, setOrigins] = useState("https://homsproje.com\nhttps://www.homsproje.com");
   const [rpm, setRpm] = useState(30);
   const [pin, setPin] = useState("");
-  const [pin2, setPin2] = useState("");
   const [sess, setSess] = useState<"local" | "session">("local");
   const [savedAt, setSavedAt] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -49,6 +48,14 @@ function Page() {
     void getApiSecurity().then((s) => {
       if (s.origins?.length) setOrigins(s.origins.join("\n"));
       if (s.rpm) setRpm(s.rpm);
+      if (s.key) {
+        setApiKey(s.key);
+        try {
+          localStorage.setItem(API_KEY, s.key);
+        } catch {
+          /* ignore */
+        }
+      }
     });
   }, []);
 
@@ -58,9 +65,9 @@ function Page() {
   }
 
   async function rotate() {
-    const res = asOk(await rotateApiKey({ data: { pin: getStaffPin() } }));
+    const res = asOk(await rotateApiKey({ data: { pin: pin || "session" } }));
     if (!res.ok || !("key" in res) || !res.key) {
-      toast.error("error" in res ? res.error : "Anahtar üretilemedi");
+      toast.error("error" in res ? res.error : "Anahtar üretilemedi — yönetici olarak giriş yapın");
       return;
     }
     setApiKey(res.key);
@@ -69,7 +76,7 @@ function Page() {
     } catch {
       /* ignore */
     }
-    toast("Yeni anahtar — bir kez kopyalayın");
+    toast("Kalıcı anahtar hazır — kopyalayın");
   }
 
   async function saveSec() {
@@ -81,7 +88,7 @@ function Page() {
       localStorage.setItem("homs-sec-origins", list.join("\n"));
       localStorage.setItem("homs-sec-rpm", String(rpm));
       setSessionMode(sess);
-      const res = asOk(await saveApiSecurity({ data: { pin: getStaffPin(), origins: list, rpm } }));
+      const res = asOk(await saveApiSecurity({ data: { pin: pin || "session", origins: list, rpm } }));
       if (!res.ok) {
         toast.error("error" in res ? res.error : "Kaydedilemedi");
         return;
@@ -95,30 +102,12 @@ function Page() {
     }
   }
 
-  function savePin() {
-    if (pin.length < 8) {
-      toast.error("En az 8 karakter");
-      return;
-    }
-    if (pin !== pin2) {
-      toast.error("Kodlar eşleşmedi");
-      return;
-    }
-    void updateStaffPin({ data: { pin: getStaffPin(), next: pin } }).then((r) => {
-      const res = asOk(r);
-      if (!res.ok) {
-        toast.error("error" in res ? res.error : "Sunucu kaydetmedi");
-        return;
-      }
-      setStaffPin(pin);
-      setPin("");
-      setPin2("");
-      toast("Giriş kodu güncellendi");
-    });
-  }
-
   async function test() {
-    const token = apiKey || getStaffPin();
+    const token = apiKey || pin;
+    if (!token) {
+      toast.error("Önce anahtarı üretin");
+      return;
+    }
     setBusy(true);
     setTestUrl(null);
     try {
@@ -153,7 +142,7 @@ function Page() {
         </Link>
         <h1 className="mt-2 font-display text-3xl font-medium">App ayarları</h1>
         <p className="mt-2 max-w-md text-sm text-muted-foreground">
-          Üyelik, API, kullanıcılar. Site formu ve harita: Site → Yönetim.
+          Yönetici kodu hosting’de HOMS_STAFF_CODE. Imagine için XAI_API_KEY.
         </p>
 
         <h2 className="mt-6 text-sm font-medium">Üyelik planları</h2>
@@ -213,11 +202,11 @@ function Page() {
 
         <h2 className="mt-6 text-sm font-medium">API anahtarı</h2>
         <p className="mt-1 break-all rounded-2xl bg-card px-4 py-3 text-sm shadow-[var(--shadow-border)]">
-          {apiKey ? (showKey ? apiKey : "homs_live_••••••••") : "Henüz yok — üretin"}
+          {apiKey ? (showKey ? apiKey : "homs_live_••••••••") : "Yönetici oturumu ile üretin"}
         </p>
         <div className="mt-2 flex flex-wrap gap-2">
           <Button size="sm" variant="outline" onClick={() => void rotate()}>
-            Anahtar üret / çevir
+            Anahtar üret / göster
           </Button>
           {apiKey ? (
             <>
@@ -270,23 +259,16 @@ function Page() {
         </Button>
 
         <h2 className="mt-6 text-sm font-medium">Yönetici kodu</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Kodu değiştirmek için hosting ortamında HOMS_STAFF_CODE yazın, sonra yeniden deploy edin.
+        </p>
         <input
           type="password"
           value={pin}
           onChange={(e) => setPin(e.target.value)}
-          placeholder="Yeni kod"
+          placeholder="Doğrulama için mevcut kod (isteğe bağlı)"
           className="mt-2 h-11 w-full rounded-full bg-card px-4 text-base shadow-[var(--shadow-border)]"
         />
-        <input
-          type="password"
-          value={pin2}
-          onChange={(e) => setPin2(e.target.value)}
-          placeholder="Yeniden"
-          className="mt-2 h-11 w-full rounded-full bg-card px-4 text-base shadow-[var(--shadow-border)]"
-        />
-        <Button size="sm" variant="outline" className="mt-2" onClick={savePin}>
-          Kodu değiştir
-        </Button>
 
         <h2 className="mt-6 text-sm font-medium">homsproje.com</h2>
         <pre className="mt-2 overflow-x-auto rounded-2xl bg-muted p-3 text-[0.7rem]">{snippetIframe(origin)}</pre>
