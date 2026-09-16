@@ -11,44 +11,30 @@ Açılış (`/`) yalnızca **Site** veya **App** seçimidir.
 
 ## Ne işe yarar
 
-Müteahhit ortak satış ofisi için AI stüdyo: boş daireyi döşeme, revize, karusel, görselden video (dolly / gimbal / ilk–son kare). App halka açık değil.
+Müteahhit ortak satış ofisi için AI stüdyo. App halka açık değil: üye şifresi veya yönetici kodu gerekir. Ücretsiz deneme girişi yok.
 
-Çalışılan hat: Beşiktaş, Etiler, Vadistanbul, Göktürk, Kemerburgaz.
-
-## Kurulum
+## Ortam
 
 ```bash
 cp .env.example .env
-# .env içine XAI_API_KEY yazın
+```
+
+| Değişken | Ne |
+|---|---|
+| `XAI_API_KEY` | console.x.ai Imagine anahtarı |
+| `HOMS_STAFF_CODE` | App yönetici kodu (sunucuda; istemciye gömülmez) |
+| `HOMS_LIVE_KEYS` | İsteğe bağlı ekstra `homs_live_…` jetonları |
+
+`Anahtar üret` disk yazmaz. Jeton `HOMS_STAFF_CODE` üzerinden sabit türetilir; deploy değişince kaybolmaz.
+
+## Kuruluş
+
+```bash
 npm install
 npm run dev
 ```
 
-Tarayıcıda kök adres açılır. **App** → ekip kodu.
-
-## API güvenlik
-
-App içinde **API** (klasör yanındaki düğme veya boş sohbet kartı):
-
-- `homs_live_…` anahtarı üret / çevir
-- izinli siteler (`homsproje.com`)
-- dakikada istek limiti
-- oturum ve giriş kilidi
-
-Siteye gömmek için iframe:
-
-```html
-<iframe
-  src="https://homsproje.com/app"
-  title="Homs Proje App"
-  allow="clipboard-write; microphone"
-  style="width:100%;height:100vh;border:0;background:#fef8ec"
-></iframe>
-```
-
-## Yığın
-
-TanStack Start, React, Tailwind, Zustand, Grok Imagine (görsel + video).
+App → yönetici kodu veya üye girişi.
 
 ## Repo
 

@@ -7,7 +7,11 @@ const VIDEO_MODEL = "grok-imagine-video-1.5";
 type ImageRef = { type: "image_url"; url: string };
 
 function apiKey() {
-  return process.env.XAI_API_KEY ?? "";
+  return process.env.XAI_API_KEY?.trim() ?? "";
+}
+
+function missingKeyError() {
+  return "xAI anahtarı yok veya geçersiz. Hosting ortamına XAI_API_KEY yazın: https://console.x.ai";
 }
 
 async function readXaiError(res: Response) {
@@ -47,7 +51,7 @@ export const generateStudioImage = createServerFn({ method: "POST" })
   .validator((input: unknown) => generateInput.parse(input))
   .handler(async ({ data }) => {
     const key = apiKey();
-    if (!key) return { ok: false as const, error: "AI bu ortamda kapalı." };
+    if (!key) return { ok: false as const, error: missingKeyError() };
 
     const images: ImageRef[] = data.images.map((url) => ({ type: "image_url" as const, url }));
     const hasSource = images.length > 0;
@@ -78,7 +82,9 @@ export const generateStudioImage = createServerFn({ method: "POST" })
     });
 
     if (!res.ok) {
-      return { ok: false as const, error: await readXaiError(res) };
+      const msg = await readXaiError(res);
+      if (/incorrect api key/i.test(msg)) return { ok: false as const, error: missingKeyError() };
+      return { ok: false as const, error: msg };
     }
 
     const json = (await res.json()) as {
@@ -104,7 +110,7 @@ export const startStudioVideo = createServerFn({ method: "POST" })
   .validator((input: unknown) => videoStartInput.parse(input))
   .handler(async ({ data }) => {
     const key = apiKey();
-    if (!key) return { ok: false as const, error: "AI bu ortamda kapalı." };
+    if (!key) return { ok: false as const, error: missingKeyError() };
 
     const res = await fetch("https://api.x.ai/v1/videos/generations", {
       method: "POST",
@@ -123,7 +129,9 @@ export const startStudioVideo = createServerFn({ method: "POST" })
     });
 
     if (!res.ok) {
-      return { ok: false as const, error: await readXaiError(res) };
+      const msg = await readXaiError(res);
+      if (/incorrect api key/i.test(msg)) return { ok: false as const, error: missingKeyError() };
+      return { ok: false as const, error: msg };
     }
 
     const json = (await res.json()) as { request_id?: string; id?: string };
@@ -136,7 +144,7 @@ export const pollStudioVideo = createServerFn({ method: "POST" })
   .validator((input: unknown) => z.object({ requestId: z.string().min(4) }).parse(input))
   .handler(async ({ data }) => {
     const key = apiKey();
-    if (!key) return { ok: false as const, error: "AI bu ortamda kapalı." };
+    if (!key) return { ok: false as const, error: missingKeyError() };
 
     const res = await fetch(`https://api.x.ai/v1/videos/${data.requestId}`, {
       headers: { Authorization: `Bearer ${key}` },
