@@ -75,6 +75,7 @@ export const addMyAsset = createServerFn({ method: "POST" })
     z
       .object({
         projectId: z.string().min(4),
+        id: z.string().min(4).max(80).optional(),
         kind: z.string().min(1).max(40),
         url: z.string().min(8),
         prompt: z.string().max(4000).optional(),
@@ -97,6 +98,7 @@ export const addMyTurn = createServerFn({ method: "POST" })
     z
       .object({
         projectId: z.string().min(4),
+        id: z.string().min(4).max(80).optional(),
         role: z.enum(["user", "assistant"]),
         text: z.string().max(8000),
         kind: z.string().max(40).optional(),
