@@ -1,10 +1,18 @@
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 
-/** Fallback only if env is empty — change HOMS_STAFF_CODE in production. */
-const FALLBACK = "Homs3369063";
-
+/**
+ * Staff secret (HOMS_STAFF_CODE).
+ * Must be provided via environment in production.
+ * Never embed a default secret in source code.
+ */
 export function staffSecret(): string {
-  return (process.env.HOMS_STAFF_CODE ?? FALLBACK).replace(/\s+/g, "");
+  const raw = process.env.HOMS_STAFF_CODE?.replace(/\s+/g, "") ?? "";
+  return raw;
+}
+
+/** True when a usable staff code is configured. */
+export function staffSecretConfigured(): boolean {
+  return staffSecret().length >= 4;
 }
 
 export function safeEqual(a: string, b: string) {
@@ -15,17 +23,27 @@ export function safeEqual(a: string, b: string) {
 }
 
 export function pinMatches(pin: string) {
+  const secret = staffSecret();
+  if (secret.length < 4) return false; // misconfigured environment
   const n = pin.replace(/\s+/g, "");
-  return n.length >= 4 && safeEqual(n, staffSecret());
+  return n.length >= 4 && safeEqual(n, secret);
 }
 
 export function hashValue(value: string) {
   return createHash("sha256").update(value).digest("hex");
 }
 
-/** Stable embed key — no disk. Changes only when HOMS_STAFF_CODE changes. */
+/**
+ * Stable embed key — derived only from HOMS_STAFF_CODE.
+ * Changes only when the env secret changes. No disk writes.
+ */
 export function stableLiveKey() {
-  const digest = createHmac("sha256", staffSecret()).update("homs-live-v1").digest("hex");
+  const secret = staffSecret();
+  if (secret.length < 4) {
+    // Misconfigured: return a non-functional placeholder so callers fail closed.
+    return "homs_live_unconfigured";
+  }
+  const digest = createHmac("sha256", secret).update("homs-live-v1").digest("hex");
   return `homs_live_${digest.slice(0, 36)}`;
 }
 
