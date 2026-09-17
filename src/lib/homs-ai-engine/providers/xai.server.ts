@@ -11,6 +11,7 @@ import type {
   HomsAiVideoRequest,
 } from "../types";
 import type { AiProvider } from "./types";
+import { persistMedia } from "@/lib/media-storage.server";
 
 const IMAGE_MODEL = "grok-imagine-image-2.0";
 const VIDEO_MODEL = "grok-imagine-video-1.5";
@@ -34,16 +35,6 @@ async function readError(res: Response) {
     /* ignore */
   }
   return publicError(text);
-}
-
-async function persistUrl(url: string): Promise<string> {
-  if (url.startsWith("data:")) return url;
-  const res = await fetch(url);
-  if (!res.ok) return url;
-  const buf = Buffer.from(await res.arrayBuffer());
-  const mime = res.headers.get("content-type")?.split(";")[0] || "image/jpeg";
-  if (buf.byteLength > 2_400_000) return url;
-  return `data:${mime};base64,${buf.toString("base64")}`;
 }
 
 export const xaiProvider: AiProvider = {
@@ -81,7 +72,11 @@ export const xaiProvider: AiProvider = {
     let url = first?.url ?? "";
     if (!url && first?.b64_json) url = `data:image/jpeg;base64,${first.b64_json}`;
     if (!url) return { ok: false, error: "Görsel üretilemedi." };
-    return { ok: true, kind: "image", url: await persistUrl(url) };
+
+    // Route through the shared media layer (data-URL fallback until durable storage is configured).
+    const persisted = await persistMedia(url);
+    if (!persisted.ok) return { ok: false, error: persisted.error };
+    return { ok: true, kind: "image", url: persisted.url };
   },
 
   async videoStart(req: HomsAiVideoRequest): Promise<HomsAiOkJob | HomsAiFail> {
@@ -128,7 +123,11 @@ export const xaiProvider: AiProvider = {
     if (status === "done" || status === "completed") {
       const url = json.video?.url ?? json.url;
       if (!url) return { ok: false, error: "Video adresi yok." };
-      return { ok: true, kind: "video", status: "done", url };
+      // Videos are typically larger; media layer will keep the temporary URL
+      // until a durable backend is configured.
+      const persisted = await persistMedia(url);
+      if (!persisted.ok) return { ok: false, error: persisted.error };
+      return { ok: true, kind: "video", status: "done", url: persisted.url };
     }
     return { ok: true, kind: "video", status: "pending" };
   },
