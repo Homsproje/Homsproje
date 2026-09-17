@@ -1,8 +1,10 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { toast } from "sonner";
 import { uid } from "@/lib/utils";
 import type { StudioMode, StyleId, ViewId } from "@/lib/prompts";
 import {
+  loadProjectDeep,
   persistAsset,
   persistDeleteProject,
   persistNewProject,
@@ -55,12 +57,16 @@ export type Project = {
   thread: ChatTurn[];
   createdAt: string;
   updatedAt: string;
+  /** True after a successful deep-load from DB for this project. */
+  deepLoaded?: boolean;
 };
 
 type StudioState = {
   projects: Project[];
-  /** True after a successful DB hydrate for the current session. */
   dbHydrated: boolean;
+  /** projectIds currently deep-loading */
+  deepLoading: Record<string, boolean>;
+  lastSyncError: string | null;
   hydrateFromDb: (
     rows: Array<{
       id: string;
@@ -73,12 +79,19 @@ type StudioState = {
       updatedAt: string;
     }>,
   ) => void;
-  createProject: (partial: Pick<Project, "title" | "mode" | "style" | "view" | "brief" | "sources">) => Project;
-  updateProject: (id: string, patch: Partial<Project>) => void;
-  addAsset: (id: string, asset: Omit<StudioAsset, "id" | "createdAt">) => StudioAsset | null;
-  addTurn: (id: string, turn: Omit<ChatTurn, "id" | "createdAt">) => void;
+  /** Load assets + turns for a project (ownership enforced server-side). */
+  ensureProjectDeepLoaded: (projectId: string) => Promise<{ ok: boolean; error?: string }>;
+  createProject: (
+    partial: Pick<Project, "title" | "mode" | "style" | "view" | "brief" | "sources">,
+  ) => Promise<Project>;
+  updateProject: (id: string, patch: Partial<Project>) => Promise<void>;
+  addAsset: (
+    id: string,
+    asset: Omit<StudioAsset, "id" | "createdAt">,
+  ) => Promise<StudioAsset | null>;
+  addTurn: (id: string, turn: Omit<ChatTurn, "id" | "createdAt">) => Promise<void>;
   removeTurn: (id: string, turnId: string) => void;
-  removeProject: (id: string) => void;
+  removeProject: (id: string) => Promise<void>;
   getProject: (id: string) => Project | undefined;
 };
 
@@ -104,6 +117,7 @@ const DEMO: Project[] = [
     thread: [],
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
+    deepLoaded: true,
   },
   {
     id: "demo-furnish",
@@ -126,6 +140,7 @@ const DEMO: Project[] = [
     thread: [],
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
+    deepLoaded: true,
   },
   {
     id: "demo-exterior",
@@ -148,6 +163,7 @@ const DEMO: Project[] = [
     thread: [],
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
+    deepLoaded: true,
   },
 ];
 
@@ -173,7 +189,16 @@ function toProjectRow(row: {
     thread: [],
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
+    deepLoaded: false,
   };
+}
+
+function notifyFail(msg: string) {
+  try {
+    toast.error(msg);
+  } catch {
+    // sonner may not be mounted in all contexts
+  }
 }
 
 export const useStudio = create<StudioState>()(
@@ -181,15 +206,14 @@ export const useStudio = create<StudioState>()(
     (set, get) => ({
       projects: DEMO,
       dbHydrated: false,
+      deepLoading: {},
+      lastSyncError: null,
 
       hydrateFromDb: (rows) => {
-        // DB is source of truth for authenticated users. Keep demo projects only
-        // when the account has zero remote projects (empty onboarding).
         const remote = rows.map(toProjectRow);
         const localOnly = get().projects.filter(
           (p) => !p.id.startsWith("demo-") && !remote.some((r) => r.id === p.id),
         );
-        // Merge: remote first, then any local-only that may still be syncing.
         const byId = new Map<string, Project>();
         for (const p of remote) byId.set(p.id, p);
         for (const p of localOnly) {
@@ -201,7 +225,40 @@ export const useStudio = create<StudioState>()(
         set({ projects: merged.length ? merged : DEMO, dbHydrated: true });
       },
 
-      createProject: (partial) => {
+      ensureProjectDeepLoaded: async (projectId) => {
+        if (projectId.startsWith("demo-")) return { ok: true };
+        const current = get().getProject(projectId);
+        if (current?.deepLoaded) return { ok: true };
+        if (get().deepLoading[projectId]) return { ok: true };
+
+        set((s) => ({ deepLoading: { ...s.deepLoading, [projectId]: true } }));
+        const res = await loadProjectDeep(projectId);
+        set((s) => {
+          const nextLoading = { ...s.deepLoading };
+          delete nextLoading[projectId];
+          return { deepLoading: nextLoading };
+        });
+
+        if (!res.ok) {
+          set({ lastSyncError: res.error });
+          if (!res.unauthorized) notifyFail(res.error || "Proje yüklenemedi.");
+          return { ok: false, error: res.error };
+        }
+
+        set((s) => ({
+          projects: s.projects.some((p) => p.id === projectId)
+            ? s.projects.map((p) =>
+                p.id === projectId
+                  ? { ...res.project, deepLoaded: true, sources: p.sources }
+                  : p,
+              )
+            : [{ ...res.project, deepLoaded: true }, ...s.projects],
+          lastSyncError: null,
+        }));
+        return { ok: true };
+      },
+
+      createProject: async (partial) => {
         const now = new Date().toISOString();
         const project: Project = {
           id: uid(),
@@ -209,30 +266,40 @@ export const useStudio = create<StudioState>()(
           thread: [],
           createdAt: now,
           updatedAt: now,
+          deepLoaded: true,
           ...partial,
         };
         set((s) => ({ projects: [project, ...s.projects] }));
-        // Fire-and-forget DB persist (authenticated sessions).
-        void persistNewProject(project);
+        const res = await persistNewProject(project);
+        if (!res.ok) {
+          set({ lastSyncError: res.error ?? "Kayıt başarısız" });
+          notifyFail(res.error || "Proje kaydedilemedi.");
+        } else {
+          set({ lastSyncError: null });
+        }
         return project;
       },
 
-      updateProject: (id, patch) => {
+      updateProject: async (id, patch) => {
         set((s) => ({
           projects: s.projects.map((p) =>
             p.id === id ? { ...p, ...patch, updatedAt: new Date().toISOString() } : p,
           ),
         }));
-        void persistProjectPatch(id, {
+        const res = await persistProjectPatch(id, {
           title: patch.title,
           mode: patch.mode,
           style: patch.style,
           view: patch.view,
           brief: patch.brief,
         });
+        if (!res.ok) {
+          set({ lastSyncError: res.error ?? "Güncelleme başarısız" });
+          notifyFail(res.error || "Proje güncellenemedi.");
+        }
       },
 
-      addAsset: (id, asset) => {
+      addAsset: async (id, asset) => {
         const next: StudioAsset = { ...asset, id: uid(), createdAt: new Date().toISOString() };
         set((s) => ({
           projects: s.projects.map((p) =>
@@ -241,39 +308,56 @@ export const useStudio = create<StudioState>()(
               : p,
           ),
         }));
-        void persistAsset(id, next);
+        const res = await persistAsset(id, next);
+        if (!res.ok) {
+          set({ lastSyncError: res.error ?? "Asset kayıt başarısız" });
+          notifyFail(res.error || "Görsel kaydedilemedi.");
+        }
         return next;
       },
 
-      addTurn: (id, turn) => {
+      addTurn: async (id, turn) => {
         const next: ChatTurn = { ...turn, id: uid(), createdAt: new Date().toISOString() };
         set((s) => ({
           projects: s.projects.map((p) =>
-            p.id === id ? { ...p, thread: [...(p.thread ?? []), next], updatedAt: new Date().toISOString() } : p,
+            p.id === id
+              ? { ...p, thread: [...(p.thread ?? []), next], updatedAt: new Date().toISOString() }
+              : p,
           ),
         }));
-        void persistTurn(id, next);
+        const res = await persistTurn(id, next);
+        if (!res.ok) {
+          set({ lastSyncError: res.error ?? "Mesaj kayıt başarısız" });
+          notifyFail(res.error || "Mesaj kaydedilemedi.");
+        }
       },
 
       removeTurn: (id, turnId) =>
         set((s) => ({
           projects: s.projects.map((p) =>
             p.id === id
-              ? { ...p, thread: (p.thread ?? []).filter((t) => t.id !== turnId), updatedAt: new Date().toISOString() }
+              ? {
+                  ...p,
+                  thread: (p.thread ?? []).filter((t) => t.id !== turnId),
+                  updatedAt: new Date().toISOString(),
+                }
               : p,
           ),
         })),
 
-      removeProject: (id) => {
+      removeProject: async (id) => {
         set((s) => ({ projects: s.projects.filter((p) => p.id !== id) }));
-        void persistDeleteProject(id);
+        const res = await persistDeleteProject(id);
+        if (!res.ok) {
+          set({ lastSyncError: res.error ?? "Silme başarısız" });
+          notifyFail(res.error || "Proje silinemedi.");
+        }
       },
 
       getProject: (id) => get().projects.find((p) => p.id === id),
     }),
     {
       name: "homs-proje-studio",
-      // Cache only — DB is authoritative when authenticated.
       partialize: (s) => ({
         projects: s.projects.map((p) => ({
           ...p,
