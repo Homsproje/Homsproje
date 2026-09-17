@@ -7,6 +7,7 @@ import {
   hasActiveMembership,
   recordUsage,
 } from "@/lib/membership.server";
+import { assertProjectOwner } from "@/lib/projects.server";
 import { isStaffSessionServer } from "@/lib/staff-session.server";
 
 /** Allow AI when the caller has an active membership OR a staff session. */
@@ -16,8 +17,21 @@ async function assertCanUseAi(userId: string): Promise<string | null> {
   return "Aktif üyelik gerekli.";
 }
 
+/**
+ * When a projectId is supplied, it MUST belong to the authenticated user.
+ * Staff sessions are not exempt from ownership for another user's project id.
+ */
+async function assertProjectAccess(
+  userId: string,
+  projectId: string | undefined,
+): Promise<string | null> {
+  if (!projectId) return null;
+  if (await assertProjectOwner(projectId, userId)) return null;
+  return "Bu projeye erişim yok.";
+}
+
 /** Block obvious SSRF targets for fetchMedia. */
-function isSafeMediaUrl(raw: string): boolean {
+export function isSafeMediaUrl(raw: string): boolean {
   if (raw.startsWith("data:")) return true;
   let u: URL;
   try {
@@ -62,6 +76,8 @@ export const generateStudioImage = createServerFn({ method: "POST" })
   .handler(async ({ context, data }) => {
     const denied = await assertCanUseAi(context.userId);
     if (denied) return { ok: false as const, error: denied };
+    const owned = await assertProjectAccess(context.userId, data.projectId);
+    if (owned) return { ok: false as const, error: owned };
 
     const jobId = await createAiJob({
       userId: context.userId,
@@ -118,6 +134,8 @@ export const startStudioVideo = createServerFn({ method: "POST" })
   .handler(async ({ context, data }) => {
     const denied = await assertCanUseAi(context.userId);
     if (denied) return { ok: false as const, error: denied };
+    const owned = await assertProjectAccess(context.userId, data.projectId);
+    if (owned) return { ok: false as const, error: owned };
 
     const { homsAi } = await import("@/lib/homs-ai-engine/engine.server");
     const res = await homsAi.videoStart({
@@ -217,7 +235,27 @@ export const interpretCommand = createServerFn({ method: "POST" })
   .validator((input: unknown) => interpretInput.parse(input))
   .handler(async ({ context, data }) => {
     const denied = await assertCanUseAi(context.userId);
-    if (denied) return { ok: false as const, error: denied, action: "image" as const, count: 1, preserveCamera: true, inspiredNotCopy: true, notes: "" };
+    if (denied)
+      return {
+        ok: false as const,
+        error: denied,
+        action: "image" as const,
+        count: 1,
+        preserveCamera: true,
+        inspiredNotCopy: true,
+        notes: "",
+      };
+    const owned = await assertProjectAccess(context.userId, data.projectId);
+    if (owned)
+      return {
+        ok: false as const,
+        error: owned,
+        action: "image" as const,
+        count: 1,
+        preserveCamera: true,
+        inspiredNotCopy: true,
+        notes: "",
+      };
 
     const { homsAi } = await import("@/lib/homs-ai-engine/engine.server");
     const intent = await homsAi.interpret(data);
