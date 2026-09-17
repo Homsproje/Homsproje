@@ -22,10 +22,12 @@ cp .env.example .env
 | Değişken | Ne |
 |---|---|
 | `XAI_API_KEY` | console.x.ai Imagine anahtarı |
-| `HOMS_STAFF_CODE` | App yönetici kodu (sunucuda; istemciye gömülmez) |
+| `HOMS_STAFF_CODE` | **Zorunlu** App yönetici kodu (sunucuda; istemciye gömülmez). Kaynak kodda varsayılan değer yoktur. |
 | `HOMS_LIVE_KEYS` | İsteğe bağlı ekstra `homs_live_…` jetonları |
 
 `Anahtar üret` disk yazmaz. Jeton `HOMS_STAFF_CODE` üzerinden sabit türetilir; deploy değişince kaybolmaz.
+
+Production ortamında `HOMS_STAFF_CODE` tanımlı değilse App kilidi açılamaz (güvenli fail-closed).
 
 ## Kuruluş
 
