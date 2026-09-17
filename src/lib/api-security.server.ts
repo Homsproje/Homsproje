@@ -15,27 +15,58 @@ export type SecFile = {
 };
 
 const FILE = join(process.cwd(), "data", "homs-security.json");
+
+/** In-memory rate-limit counters (process-local; acceptable for serverless). */
 const hits = new Map<string, { n: number; t: number }>();
+
+/** In-memory security overrides when FS is unavailable (Vercel etc.). */
+let memorySec: SecFile | null = null;
 
 export const hash = hashValue;
 
+function defaultSec(): SecFile {
+  // Env can override defaults without touching disk.
+  const envOrigins = (process.env.HOMS_API_ORIGINS ?? "")
+    .split(/[,\s]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const envRpm = Number(process.env.HOMS_API_RPM || "");
+  return {
+    keyHashes: [],
+    origins:
+      envOrigins.length > 0
+        ? envOrigins
+        : ["https://homsproje.com", "https://www.homsproje.com"],
+    rpm: Number.isFinite(envRpm) && envRpm >= 5 && envRpm <= 120 ? envRpm : 30,
+  };
+}
+
 export function load(): SecFile {
+  if (memorySec) return { ...memorySec };
   try {
-    if (!existsSync(FILE)) {
-      return { keyHashes: [], origins: ["https://homsproje.com", "https://www.homsproje.com"], rpm: 30 };
-    }
-    return JSON.parse(readFileSync(FILE, "utf8")) as SecFile;
+    if (!existsSync(FILE)) return defaultSec();
+    const parsed = JSON.parse(readFileSync(FILE, "utf8")) as SecFile;
+    // Merge with defaults so missing fields never break production.
+    const base = defaultSec();
+    return {
+      keyHashes: Array.isArray(parsed.keyHashes) ? parsed.keyHashes : [],
+      origins: Array.isArray(parsed.origins) && parsed.origins.length > 0 ? parsed.origins : base.origins,
+      rpm: typeof parsed.rpm === "number" ? parsed.rpm : base.rpm,
+    };
   } catch {
-    return { keyHashes: [], origins: ["https://homsproje.com"], rpm: 30 };
+    return defaultSec();
   }
 }
 
 export function save(data: SecFile) {
+  // Always keep an in-memory copy so the current process sees updates
+  // even when the filesystem is read-only (typical on Vercel).
+  memorySec = { ...data };
   try {
     mkdirSync(dirname(FILE), { recursive: true });
     writeFileSync(FILE, JSON.stringify(data, null, 2));
   } catch {
-    /* serverless fs may be read-only */
+    /* serverless fs may be read-only — memorySec still holds the value */
   }
 }
 
