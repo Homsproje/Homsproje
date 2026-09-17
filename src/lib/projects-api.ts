@@ -26,6 +26,7 @@ export const createMyProject = createServerFn({ method: "POST" })
   .validator((input: unknown) =>
     z
       .object({
+        id: z.string().min(4).max(80).optional(),
         title: z.string().min(1).max(200),
         mode: z.string().min(1).max(40),
         style: z.string().min(1).max(40),
