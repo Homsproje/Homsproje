@@ -12,3 +12,18 @@ export function env(key: string): string | undefined {
 export function isWorkspacePreview(): boolean {
   return !env("GROK_PROJECT_ID");
 }
+
+/**
+ * True when the process should behave as production (no PGLite fallback,
+ * require DATABASE_URL, etc.).
+ *
+ * - NODE_ENV=production
+ * - VERCEL=1 (Vercel production / preview deploys)
+ * - HOMS_REQUIRE_DATABASE=true (explicit opt-in)
+ */
+export function isProductionRuntime(): boolean {
+  if (env("HOMS_REQUIRE_DATABASE") === "true") return true;
+  if (env("VERCEL") === "1") return true;
+  if (process.env.NODE_ENV === "production") return true;
+  return false;
+}
