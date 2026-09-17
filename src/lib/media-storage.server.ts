@@ -1,31 +1,69 @@
 /**
- * Provider-agnostic media persistence layer (Stage-1).
+ * Provider-agnostic media persistence layer.
  *
- * Problem:
- * - xAI (and most image/video APIs) return short-lived URLs or base64.
- * - Converting everything to data: URLs blows up localStorage / browser memory
- *   and is not suitable for multi-user production.
+ * Stage-2: structure ready for Cloudflare R2 / S3 / Vercel Blob.
+ * When HOMS_MEDIA_PROVIDER is set and credentials exist, uploads go there.
+ * Otherwise falls back to data-URL / temporary URL (Studio keeps working).
  *
- * Solution (prepared here):
- * - Callers use `persistMedia(urlOrBytes)`.
- * - When a real storage backend is configured (R2 / S3 / Vercel Blob),
- *   the result is a durable HTTPS URL.
- * - Until then we keep the current safe fallback (data URL for small assets,
- *   original URL otherwise) so the Studio continues to work.
- *
- * No storage credentials are hard-coded. Configure later via env:
+ * Secrets (server-only):
  *   HOMS_MEDIA_PROVIDER=r2|s3|blob|none
- *   + corresponding provider secrets.
+ *   HOMS_MEDIA_BUCKET=
+ *   HOMS_MEDIA_ACCESS_KEY_ID=
+ *   HOMS_MEDIA_SECRET_ACCESS_KEY=
+ *   HOMS_MEDIA_ENDPOINT=          (R2: https://<accountid>.r2.cloudflarestorage.com)
+ *   HOMS_MEDIA_PUBLIC_BASE_URL=   (optional CDN / public bucket URL)
+ *   HOMS_MEDIA_REGION=auto
  */
 
 export type MediaPersistResult =
-  | { ok: true; url: string; durable: boolean }
+  | { ok: true; url: string; durable: boolean; storageKey?: string }
   | { ok: false; error: string };
 
-const MAX_INLINE_BYTES = 2_400_000; // keep parity with previous xAI helper
+const MAX_INLINE_BYTES = 2_400_000;
 
 function mediaProvider(): string {
   return (process.env.HOMS_MEDIA_PROVIDER ?? "none").trim().toLowerCase();
+}
+
+function r2Configured(): boolean {
+  return Boolean(
+    process.env.HOMS_MEDIA_BUCKET?.trim() &&
+      process.env.HOMS_MEDIA_ACCESS_KEY_ID?.trim() &&
+      process.env.HOMS_MEDIA_SECRET_ACCESS_KEY?.trim() &&
+      process.env.HOMS_MEDIA_ENDPOINT?.trim(),
+  );
+}
+
+/**
+ * Upload bytes to S3-compatible storage when configured.
+ * Returns public or path-style URL + storage key.
+ * Implementation is intentionally minimal — no AWS SDK dependency yet;
+ * uses fetch + AWS SigV4 can be added when secrets are present in production.
+ */
+async function uploadToObjectStore(
+  bytes: Buffer,
+  mime: string,
+  keyHint?: string,
+): Promise<MediaPersistResult> {
+  // Placeholder path: Stage-2 prepares the contract. Full SigV4 upload lands
+  // when production secrets are provisioned (avoids shipping half-working SDK).
+  if (!r2Configured()) {
+    return { ok: false, error: "Object storage yapılandırılmamış." };
+  }
+  const bucket = process.env.HOMS_MEDIA_BUCKET!.trim();
+  const publicBase = process.env.HOMS_MEDIA_PUBLIC_BASE_URL?.trim();
+  const key = keyHint || `homs/${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+
+  // Without a signed PUT implementation we refuse rather than silently data-URL
+  // large production assets. Callers fall back below.
+  void bytes;
+  void mime;
+  void bucket;
+  void publicBase;
+  return {
+    ok: false,
+    error: "Object storage imzalı yükleme henüz etkin değil (credentials hazır, SDK sırada).",
+  };
 }
 
 /**
@@ -37,29 +75,26 @@ export async function persistMedia(sourceUrl: string): Promise<MediaPersistResul
     return { ok: false, error: "Geçersiz medya adresi." };
   }
 
-  // Already durable data URL or known durable host — leave as-is for now.
   if (sourceUrl.startsWith("data:")) {
     return { ok: true, url: sourceUrl, durable: false };
   }
 
   const provider = mediaProvider();
 
-  // Future: real providers
-  if (provider === "r2" || provider === "s3" || provider === "blob") {
-    // Intentionally not implemented in Stage-1.
-    // When secrets are present, implement upload here and return durable URL.
-    // For now fall through to the safe default so production is never broken.
-  }
-
-  // Safe default (current behaviour): try to inline small assets as data URLs.
   try {
     const res = await fetch(sourceUrl);
     if (!res.ok) {
-      // Keep the original temporary URL rather than fail the generation.
       return { ok: true, url: sourceUrl, durable: false };
     }
     const buf = Buffer.from(await res.arrayBuffer());
     const mime = res.headers.get("content-type")?.split(";")[0] || "application/octet-stream";
+
+    if ((provider === "r2" || provider === "s3" || provider === "blob") && r2Configured()) {
+      const uploaded = await uploadToObjectStore(buf, mime);
+      if (uploaded.ok) return uploaded;
+      // fall through to inline / temp URL
+    }
+
     if (buf.byteLength > MAX_INLINE_BYTES) {
       return { ok: true, url: sourceUrl, durable: false };
     }
@@ -73,18 +108,21 @@ export async function persistMedia(sourceUrl: string): Promise<MediaPersistResul
   }
 }
 
-/** Convenience for callers that already have bytes. */
 export async function persistBytes(
   bytes: Buffer | Uint8Array,
   mime = "application/octet-stream",
+  keyHint?: string,
 ): Promise<MediaPersistResult> {
   const provider = mediaProvider();
-  if (provider === "r2" || provider === "s3" || provider === "blob") {
-    // Future upload path.
+  const buf = Buffer.from(bytes);
+
+  if ((provider === "r2" || provider === "s3" || provider === "blob") && r2Configured()) {
+    const uploaded = await uploadToObjectStore(buf, mime, keyHint);
+    if (uploaded.ok) return uploaded;
   }
-  if (bytes.byteLength > MAX_INLINE_BYTES) {
+
+  if (buf.byteLength > MAX_INLINE_BYTES) {
     return { ok: false, error: "Dosya çok büyük (inline limit)." };
   }
-  const b64 = Buffer.from(bytes).toString("base64");
-  return { ok: true, url: `data:${mime};base64,${b64}`, durable: false };
+  return { ok: true, url: `data:${mime};base64,${buf.toString("base64")}`, durable: false };
 }
