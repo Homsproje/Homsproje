@@ -98,12 +98,7 @@ export async function createProject(
     on conflict (id) do nothing
   `;
   const row = await getProject(id, userId);
-  if (!row) {
-    // Conflict: verify ownership of existing row
-    const existing = await getProject(id, userId);
-    if (existing) return existing;
-    throw new Error("Proje oluşturulamadı.");
-  }
+  if (!row) throw new Error("Proje oluşturulamadı.");
   return row;
 }
 
@@ -164,11 +159,12 @@ export async function addAsset(
     view?: string;
     title?: string;
     storageKey?: string;
+    id?: string;
   },
 ): Promise<AssetRow | null> {
   if (!(await assertProjectOwner(data.projectId, userId))) return null;
   const sql = await getSql();
-  const id = uid();
+  const id = data.id && data.id.length >= 4 ? data.id : uid();
   await sql`
     insert into project_assets
       (id, project_id, user_id, kind, role, url, storage_key, prompt, view, title)
@@ -184,6 +180,7 @@ export async function addAsset(
       ${data.view ?? null},
       ${data.title ?? null}
     )
+    on conflict (id) do nothing
   `;
   await sql`update projects set updated_at = now() where id = ${data.projectId} and user_id = ${userId}`;
   const rows = await sql<AssetRow>`
@@ -213,11 +210,12 @@ export async function addTurn(
     text: string;
     kind?: string;
     url?: string;
+    id?: string;
   },
 ): Promise<TurnRow | null> {
   if (!(await assertProjectOwner(data.projectId, userId))) return null;
   const sql = await getSql();
-  const id = uid();
+  const id = data.id && data.id.length >= 4 ? data.id : uid();
   await sql`
     insert into conversation_turns (id, project_id, user_id, role, text, kind, url)
     values (
@@ -229,6 +227,7 @@ export async function addTurn(
       ${data.kind ?? null},
       ${data.url ?? null}
     )
+    on conflict (id) do nothing
   `;
   await sql`update projects set updated_at = now() where id = ${data.projectId} and user_id = ${userId}`;
   const rows = await sql<TurnRow>`
