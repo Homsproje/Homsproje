@@ -38,12 +38,21 @@ export type TurnRow = {
   created_at: string;
 };
 
-async function assertProjectOwner(projectId: string, userId: string): Promise<boolean> {
+/** Returns true only when the project exists and belongs to userId. */
+export async function assertProjectOwner(projectId: string, userId: string): Promise<boolean> {
+  if (!projectId || !userId) return false;
   const sql = await getSql();
   const rows = await sql<{ id: string }>`
     select id from projects where id = ${projectId} and user_id = ${userId} limit 1
   `;
   return rows.length > 0;
+}
+
+/** Throws if the project is missing or not owned by userId. */
+export async function requireProjectOwner(projectId: string, userId: string): Promise<void> {
+  if (!(await assertProjectOwner(projectId, userId))) {
+    throw new Error("Proje bulunamadı veya erişim yok.");
+  }
 }
 
 export async function listProjects(userId: string): Promise<ProjectRow[]> {
@@ -71,10 +80,10 @@ export async function getProject(projectId: string, userId: string): Promise<Pro
 
 export async function createProject(
   userId: string,
-  data: { title: string; mode: string; style: string; view: string; brief?: string },
+  data: { title: string; mode: string; style: string; view: string; brief?: string; id?: string },
 ): Promise<ProjectRow> {
   const sql = await getSql();
-  const id = uid();
+  const id = data.id && data.id.length >= 4 ? data.id : uid();
   await sql`
     insert into projects (id, user_id, title, mode, style, view, brief)
     values (
@@ -86,9 +95,15 @@ export async function createProject(
       ${data.view},
       ${data.brief ?? ""}
     )
+    on conflict (id) do nothing
   `;
   const row = await getProject(id, userId);
-  if (!row) throw new Error("Proje oluşturulamadı.");
+  if (!row) {
+    // Conflict: verify ownership of existing row
+    const existing = await getProject(id, userId);
+    if (existing) return existing;
+    throw new Error("Proje oluşturulamadı.");
+  }
   return row;
 }
 
