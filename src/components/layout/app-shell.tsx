@@ -2,6 +2,7 @@ import { type ReactNode } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { BrandLogo } from "@/components/layout/logo";
 import { StaffGate } from "@/components/layout/staff-gate";
+import { StudioDbHydrator } from "@/components/studio/db-hydrator";
 import { lockStaff } from "@/lib/staff";
 import { APP_NAV } from "@/lib/site";
 
@@ -10,6 +11,7 @@ export function AppShell({ children, footer = false }: { children: ReactNode; fo
 
   return (
     <StaffGate>
+      <StudioDbHydrator />
       <div className="min-h-dvh bg-background text-foreground">
         <header className="sticky top-0 z-30 border-b border-border bg-background/90 backdrop-blur-md">
           <div className="mx-auto flex h-14 max-w-[1280px] items-center justify-between gap-3 px-4 sm:h-16 sm:px-6">
