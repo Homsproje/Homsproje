@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { authMiddleware } from "@/lib/auth/middleware";
@@ -5,22 +6,18 @@ import {
   completeAiJob,
   createAiJob,
   hasActiveMembership,
+  markAiJobRunning,
   recordUsage,
 } from "@/lib/membership.server";
 import { assertProjectOwner } from "@/lib/projects.server";
 import { isStaffSessionServer } from "@/lib/staff-session.server";
 
-/** Allow AI when the caller has an active membership OR a staff session. */
 async function assertCanUseAi(userId: string): Promise<string | null> {
   if (await isStaffSessionServer()) return null;
   if (await hasActiveMembership(userId)) return null;
   return "Aktif üyelik gerekli.";
 }
 
-/**
- * When a projectId is supplied, it MUST belong to the authenticated user.
- * Staff sessions are not exempt from ownership for another user's project id.
- */
 async function assertProjectAccess(
   userId: string,
   projectId: string | undefined,
@@ -30,7 +27,15 @@ async function assertProjectAccess(
   return "Bu projeye erişim yok.";
 }
 
-/** Block obvious SSRF targets for fetchMedia. */
+function makeIdempotencyKey(
+  userId: string,
+  op: string,
+  parts: Record<string, unknown>,
+): string {
+  const payload = JSON.stringify({ userId, op, ...parts });
+  return createHash("sha256").update(payload).digest("hex").slice(0, 48);
+}
+
 export function isSafeMediaUrl(raw: string): boolean {
   if (raw.startsWith("data:")) return true;
   let u: URL;
@@ -68,6 +73,8 @@ const generateInput = z.object({
   lighting: z.string().optional(),
   camera: z.string().optional(),
   projectId: z.string().optional(),
+  /** Optional client-supplied key; server also derives a stable hash. */
+  idempotencyKey: z.string().min(8).max(80).optional(),
 });
 
 export const generateStudioImage = createServerFn({ method: "POST" })
@@ -79,12 +86,31 @@ export const generateStudioImage = createServerFn({ method: "POST" })
     const owned = await assertProjectAccess(context.userId, data.projectId);
     if (owned) return { ok: false as const, error: owned };
 
-    const jobId = await createAiJob({
+    const idem =
+      data.idempotencyKey ||
+      makeIdempotencyKey(context.userId, "image", {
+        prompt: data.prompt,
+        aspectRatio: data.aspectRatio,
+        resolution: data.resolution,
+        projectId: data.projectId ?? null,
+        // Hash only first 32 chars of first image to avoid huge keys
+        img0: data.images[0]?.slice(0, 64) ?? "",
+      });
+
+    const { jobId, reused } = await createAiJob({
       userId: context.userId,
       projectId: data.projectId,
       type: "image",
       input: { prompt: data.prompt, aspectRatio: data.aspectRatio },
+      idempotencyKey: idem,
     });
+
+    if (reused) {
+      // Job already exists for this key — do not re-bill usage.
+      return { ok: true as const, url: "", jobId, reused: true as const };
+    }
+
+    await markAiJobRunning(jobId, context.userId);
 
     const { homsAi } = await import("@/lib/homs-ai-engine/engine.server");
     const res = await homsAi.image({
@@ -112,8 +138,9 @@ export const generateStudioImage = createServerFn({ method: "POST" })
       operation: "image",
       provider: "xai",
       jobId,
+      idempotencyKey: `usage:${idem}`,
     });
-    return { ok: true as const, url: res.url, jobId };
+    return { ok: true as const, url: res.url, jobId, reused: false as const };
   });
 
 const videoStartInput = z.object({
@@ -126,6 +153,7 @@ const videoStartInput = z.object({
   lighting: z.string().optional(),
   camera: z.string().optional(),
   projectId: z.string().optional(),
+  idempotencyKey: z.string().min(8).max(80).optional(),
 });
 
 export const startStudioVideo = createServerFn({ method: "POST" })
@@ -136,6 +164,35 @@ export const startStudioVideo = createServerFn({ method: "POST" })
     if (denied) return { ok: false as const, error: denied };
     const owned = await assertProjectAccess(context.userId, data.projectId);
     if (owned) return { ok: false as const, error: owned };
+
+    const idem =
+      data.idempotencyKey ||
+      makeIdempotencyKey(context.userId, "video_start", {
+        prompt: data.prompt,
+        duration: data.duration,
+        projectId: data.projectId ?? null,
+        img: data.image.slice(0, 64),
+      });
+
+    const existing = await createAiJob({
+      userId: context.userId,
+      projectId: data.projectId,
+      type: "video",
+      input: { prompt: data.prompt, duration: data.duration },
+      idempotencyKey: idem,
+      status: "pending",
+    });
+
+    if (existing.reused) {
+      return {
+        ok: true as const,
+        requestId: "",
+        jobId: existing.jobId,
+        reused: true as const,
+      };
+    }
+
+    await markAiJobRunning(existing.jobId, context.userId);
 
     const { homsAi } = await import("@/lib/homs-ai-engine/engine.server");
     const res = await homsAi.videoStart({
@@ -148,22 +205,39 @@ export const startStudioVideo = createServerFn({ method: "POST" })
       lighting: data.lighting,
       camera: data.camera,
     });
-    if (!res.ok) return { ok: false as const, error: res.error };
 
-    const jobId = await createAiJob({
-      userId: context.userId,
-      projectId: data.projectId,
-      type: "video",
-      input: { prompt: data.prompt, duration: data.duration },
-      externalId: res.jobId,
-    });
+    if (!res.ok) {
+      await completeAiJob(existing.jobId, context.userId, {
+        status: "failed",
+        error: res.error,
+      });
+      // No usage on failed start
+      return { ok: false as const, error: res.error };
+    }
+
+    // Attach external id
+    const { getSql } = await import("@/lib/db");
+    const sql = await getSql();
+    await sql`
+      update ai_jobs
+      set external_id = ${res.jobId}, status = 'running'
+      where id = ${existing.jobId} and user_id = ${context.userId}
+    `;
+
     await recordUsage({
       userId: context.userId,
       operation: "video_start",
       provider: "xai",
-      jobId,
+      jobId: existing.jobId,
+      idempotencyKey: `usage:${idem}`,
     });
-    return { ok: true as const, requestId: res.jobId, jobId };
+
+    return {
+      ok: true as const,
+      requestId: res.jobId,
+      jobId: existing.jobId,
+      reused: false as const,
+    };
   });
 
 export const pollStudioVideo = createServerFn({ method: "POST" })
@@ -228,6 +302,7 @@ const interpretInput = z.object({
   photoCount: z.number().min(0).max(20),
   hasSelected: z.boolean().optional(),
   projectId: z.string().optional(),
+  idempotencyKey: z.string().min(8).max(80).optional(),
 });
 
 export const interpretCommand = createServerFn({ method: "POST" })
@@ -257,12 +332,21 @@ export const interpretCommand = createServerFn({ method: "POST" })
         notes: "",
       };
 
+    const idem =
+      data.idempotencyKey ||
+      makeIdempotencyKey(context.userId, "interpret", {
+        text: data.text,
+        photoCount: data.photoCount,
+        projectId: data.projectId ?? null,
+      });
+
     const { homsAi } = await import("@/lib/homs-ai-engine/engine.server");
     const intent = await homsAi.interpret(data);
     await recordUsage({
       userId: context.userId,
       operation: "interpret",
       provider: "xai",
+      idempotencyKey: `usage:${idem}`,
     });
     return intent;
   });
