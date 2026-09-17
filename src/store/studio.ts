@@ -57,14 +57,12 @@ export type Project = {
   thread: ChatTurn[];
   createdAt: string;
   updatedAt: string;
-  /** True after a successful deep-load from DB for this project. */
   deepLoaded?: boolean;
 };
 
 type StudioState = {
   projects: Project[];
   dbHydrated: boolean;
-  /** projectIds currently deep-loading */
   deepLoading: Record<string, boolean>;
   lastSyncError: string | null;
   hydrateFromDb: (
@@ -79,19 +77,15 @@ type StudioState = {
       updatedAt: string;
     }>,
   ) => void;
-  /** Load assets + turns for a project (ownership enforced server-side). */
   ensureProjectDeepLoaded: (projectId: string) => Promise<{ ok: boolean; error?: string }>;
   createProject: (
     partial: Pick<Project, "title" | "mode" | "style" | "view" | "brief" | "sources">,
-  ) => Promise<Project>;
-  updateProject: (id: string, patch: Partial<Project>) => Promise<void>;
-  addAsset: (
-    id: string,
-    asset: Omit<StudioAsset, "id" | "createdAt">,
-  ) => Promise<StudioAsset | null>;
-  addTurn: (id: string, turn: Omit<ChatTurn, "id" | "createdAt">) => Promise<void>;
+  ) => Project;
+  updateProject: (id: string, patch: Partial<Project>) => void;
+  addAsset: (id: string, asset: Omit<StudioAsset, "id" | "createdAt">) => StudioAsset | null;
+  addTurn: (id: string, turn: Omit<ChatTurn, "id" | "createdAt">) => void;
   removeTurn: (id: string, turnId: string) => void;
-  removeProject: (id: string) => Promise<void>;
+  removeProject: (id: string) => void;
   getProject: (id: string) => Project | undefined;
 };
 
@@ -197,7 +191,7 @@ function notifyFail(msg: string) {
   try {
     toast.error(msg);
   } catch {
-    // sonner may not be mounted in all contexts
+    /* sonner may be unmounted */
   }
 }
 
@@ -258,7 +252,8 @@ export const useStudio = create<StudioState>()(
         return { ok: true };
       },
 
-      createProject: async (partial) => {
+      // Sync return for existing workspace callers; persist is awaited with retry internally.
+      createProject: (partial) => {
         const now = new Date().toISOString();
         const project: Project = {
           id: uid(),
@@ -270,36 +265,40 @@ export const useStudio = create<StudioState>()(
           ...partial,
         };
         set((s) => ({ projects: [project, ...s.projects] }));
-        const res = await persistNewProject(project);
-        if (!res.ok) {
-          set({ lastSyncError: res.error ?? "Kayıt başarısız" });
-          notifyFail(res.error || "Proje kaydedilemedi.");
-        } else {
-          set({ lastSyncError: null });
-        }
+        void (async () => {
+          const res = await persistNewProject(project);
+          if (!res.ok) {
+            set({ lastSyncError: res.error ?? "Kayıt başarısız" });
+            notifyFail(res.error || "Proje kaydedilemedi.");
+          } else {
+            set({ lastSyncError: null });
+          }
+        })();
         return project;
       },
 
-      updateProject: async (id, patch) => {
+      updateProject: (id, patch) => {
         set((s) => ({
           projects: s.projects.map((p) =>
             p.id === id ? { ...p, ...patch, updatedAt: new Date().toISOString() } : p,
           ),
         }));
-        const res = await persistProjectPatch(id, {
-          title: patch.title,
-          mode: patch.mode,
-          style: patch.style,
-          view: patch.view,
-          brief: patch.brief,
-        });
-        if (!res.ok) {
-          set({ lastSyncError: res.error ?? "Güncelleme başarısız" });
-          notifyFail(res.error || "Proje güncellenemedi.");
-        }
+        void (async () => {
+          const res = await persistProjectPatch(id, {
+            title: patch.title,
+            mode: patch.mode,
+            style: patch.style,
+            view: patch.view,
+            brief: patch.brief,
+          });
+          if (!res.ok) {
+            set({ lastSyncError: res.error ?? "Güncelleme başarısız" });
+            notifyFail(res.error || "Proje güncellenemedi.");
+          }
+        })();
       },
 
-      addAsset: async (id, asset) => {
+      addAsset: (id, asset) => {
         const next: StudioAsset = { ...asset, id: uid(), createdAt: new Date().toISOString() };
         set((s) => ({
           projects: s.projects.map((p) =>
@@ -308,15 +307,17 @@ export const useStudio = create<StudioState>()(
               : p,
           ),
         }));
-        const res = await persistAsset(id, next);
-        if (!res.ok) {
-          set({ lastSyncError: res.error ?? "Asset kayıt başarısız" });
-          notifyFail(res.error || "Görsel kaydedilemedi.");
-        }
+        void (async () => {
+          const res = await persistAsset(id, next);
+          if (!res.ok) {
+            set({ lastSyncError: res.error ?? "Asset kayıt başarısız" });
+            notifyFail(res.error || "Görsel kaydedilemedi.");
+          }
+        })();
         return next;
       },
 
-      addTurn: async (id, turn) => {
+      addTurn: (id, turn) => {
         const next: ChatTurn = { ...turn, id: uid(), createdAt: new Date().toISOString() };
         set((s) => ({
           projects: s.projects.map((p) =>
@@ -325,11 +326,13 @@ export const useStudio = create<StudioState>()(
               : p,
           ),
         }));
-        const res = await persistTurn(id, next);
-        if (!res.ok) {
-          set({ lastSyncError: res.error ?? "Mesaj kayıt başarısız" });
-          notifyFail(res.error || "Mesaj kaydedilemedi.");
-        }
+        void (async () => {
+          const res = await persistTurn(id, next);
+          if (!res.ok) {
+            set({ lastSyncError: res.error ?? "Mesaj kayıt başarısız" });
+            notifyFail(res.error || "Mesaj kaydedilemedi.");
+          }
+        })();
       },
 
       removeTurn: (id, turnId) =>
@@ -345,13 +348,15 @@ export const useStudio = create<StudioState>()(
           ),
         })),
 
-      removeProject: async (id) => {
+      removeProject: (id) => {
         set((s) => ({ projects: s.projects.filter((p) => p.id !== id) }));
-        const res = await persistDeleteProject(id);
-        if (!res.ok) {
-          set({ lastSyncError: res.error ?? "Silme başarısız" });
-          notifyFail(res.error || "Proje silinemedi.");
-        }
+        void (async () => {
+          const res = await persistDeleteProject(id);
+          if (!res.ok) {
+            set({ lastSyncError: res.error ?? "Silme başarısız" });
+            notifyFail(res.error || "Proje silinemedi.");
+          }
+        })();
       },
 
       getProject: (id) => get().projects.find((p) => p.id === id),
