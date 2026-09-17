@@ -1,3 +1,15 @@
+/**
+ * LEGACY client-side membership store.
+ *
+ * WARNING: Passwords are stored in plaintext in localStorage.
+ * This is acceptable only for local demos / early internal use.
+ * Production SaaS MUST migrate to Better Auth (see migrations/auth +
+ * src/lib/auth). Do not treat this module as a secure identity layer.
+ *
+ * Stage-1 note: We deliberately keep the existing UX (login/signup/plans)
+ * so the Studio gate continues to work while the real auth path is prepared.
+ */
+
 export type Plan = {
   id: string;
   name: string;
@@ -9,6 +21,7 @@ export type Plan = {
 export type Member = {
   email: string;
   name: string;
+  /** @deprecated Plaintext — never rely on this in production. */
   pass: string;
   plan: string;
   until: number;
@@ -66,6 +79,7 @@ export function isMemberOk() {
 }
 
 export function loginMember(email: string, pass: string) {
+  // Legacy plaintext comparison — replace with Better Auth before public launch.
   const u = loadUsers().find((x) => x.email === email.trim().toLowerCase() && x.pass === pass);
   if (!u) return { ok: false as const, error: "E-posta veya şifre." };
   if (u.until < Date.now()) return { ok: false as const, error: "Süre doldu." };
@@ -81,6 +95,7 @@ export function signupMember(name: string, email: string, pass: string, planId: 
   if (!e || !pass || pass.length < 6) return { ok: false as const, error: "E-posta ve en az 6 karakter şifre." };
   const users = loadUsers().filter((x) => x.email !== e);
   const until = Date.now() + plan.days * 86400000;
+  // Storing plaintext password is intentional only for the legacy path.
   const next: Member = { email: e, name: name.trim() || e, pass, plan: plan.id, until };
   users.push(next);
   saveUsers(users);
