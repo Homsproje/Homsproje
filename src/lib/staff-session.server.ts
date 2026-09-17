@@ -49,3 +49,8 @@ export async function writeStaffCookie(value: string, maxAge = MAX_AGE) {
 export async function staffCookieOk() {
   return tokenValid(await readStaffCookie());
 }
+
+/** Server-side staff session check used by AI entitlement gates. */
+export async function isStaffSessionServer() {
+  return staffCookieOk();
+}
