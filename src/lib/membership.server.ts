@@ -85,6 +85,11 @@ export async function ensureMembership(
   return { ok: true, membership };
 }
 
+/**
+ * Record a usage event. When idempotencyKey is provided and already exists
+ * for this user, returns the existing event id (no duplicate insert).
+ * Does NOT enforce quotas — metering only.
+ */
 export async function recordUsage(opts: {
   userId: string;
   operation: string;
@@ -93,25 +98,55 @@ export async function recordUsage(opts: {
   jobId?: string;
   planId?: string;
   meta?: Record<string, unknown>;
-}) {
+  idempotencyKey?: string | null;
+}): Promise<string> {
   const sql = await getSql();
+  const key = opts.idempotencyKey?.trim() || null;
+
+  if (key) {
+    const existing = await sql<{ id: string }>`
+      select id from usage_events
+      where user_id = ${opts.userId} and idempotency_key = ${key}
+      limit 1
+    `;
+    if (existing[0]) return existing[0].id;
+  }
+
   const id = uid();
-  await sql`
-    insert into usage_events (id, user_id, plan_id, operation, units, provider, job_id, meta)
-    values (
-      ${id},
-      ${opts.userId},
-      ${opts.planId ?? null},
-      ${opts.operation},
-      ${opts.units ?? 1},
-      ${opts.provider ?? null},
-      ${opts.jobId ?? null},
-      ${JSON.stringify(opts.meta ?? {})}::jsonb
-    )
-  `;
-  return id;
+  try {
+    await sql`
+      insert into usage_events (id, user_id, plan_id, operation, units, provider, job_id, meta, idempotency_key)
+      values (
+        ${id},
+        ${opts.userId},
+        ${opts.planId ?? null},
+        ${opts.operation},
+        ${opts.units ?? 1},
+        ${opts.provider ?? null},
+        ${opts.jobId ?? null},
+        ${JSON.stringify(opts.meta ?? {})}::jsonb,
+        ${key}
+      )
+    `;
+    return id;
+  } catch {
+    // Unique race: fetch existing
+    if (key) {
+      const again = await sql<{ id: string }>`
+        select id from usage_events
+        where user_id = ${opts.userId} and idempotency_key = ${key}
+        limit 1
+      `;
+      if (again[0]) return again[0].id;
+    }
+    throw new Error("usage_events insert failed");
+  }
 }
 
+/**
+ * Create an AI job. With idempotencyKey, reuses an existing job for the same
+ * user+key instead of inserting a duplicate.
+ */
 export async function createAiJob(opts: {
   userId: string;
   projectId?: string | null;
@@ -119,23 +154,50 @@ export async function createAiJob(opts: {
   provider?: string;
   input?: Record<string, unknown>;
   externalId?: string | null;
-}) {
+  idempotencyKey?: string | null;
+  status?: string;
+}): Promise<{ jobId: string; reused: boolean }> {
   const sql = await getSql();
+  const key = opts.idempotencyKey?.trim() || null;
+
+  if (key) {
+    const existing = await sql<{ id: string }>`
+      select id from ai_jobs
+      where user_id = ${opts.userId} and idempotency_key = ${key}
+      limit 1
+    `;
+    if (existing[0]) return { jobId: existing[0].id, reused: true };
+  }
+
   const id = uid();
-  await sql`
-    insert into ai_jobs (id, user_id, project_id, type, provider, status, input, external_id)
-    values (
-      ${id},
-      ${opts.userId},
-      ${opts.projectId ?? null},
-      ${opts.type},
-      ${opts.provider ?? "xai"},
-      'pending',
-      ${JSON.stringify(opts.input ?? {})}::jsonb,
-      ${opts.externalId ?? null}
-    )
-  `;
-  return id;
+  const status = opts.status ?? "pending";
+  try {
+    await sql`
+      insert into ai_jobs (id, user_id, project_id, type, provider, status, input, external_id, idempotency_key)
+      values (
+        ${id},
+        ${opts.userId},
+        ${opts.projectId ?? null},
+        ${opts.type},
+        ${opts.provider ?? "xai"},
+        ${status},
+        ${JSON.stringify(opts.input ?? {})}::jsonb,
+        ${opts.externalId ?? null},
+        ${key}
+      )
+    `;
+    return { jobId: id, reused: false };
+  } catch {
+    if (key) {
+      const again = await sql<{ id: string }>`
+        select id from ai_jobs
+        where user_id = ${opts.userId} and idempotency_key = ${key}
+        limit 1
+      `;
+      if (again[0]) return { jobId: again[0].id, reused: true };
+    }
+    throw new Error("ai_jobs insert failed");
+  }
 }
 
 export async function completeAiJob(
@@ -151,5 +213,14 @@ export async function completeAiJob(
         error = ${result.error ?? null},
         completed_at = now()
     where id = ${jobId} and user_id = ${userId}
+  `;
+}
+
+export async function markAiJobRunning(jobId: string, userId: string) {
+  const sql = await getSql();
+  await sql`
+    update ai_jobs
+    set status = 'running'
+    where id = ${jobId} and user_id = ${userId} and status = 'pending'
   `;
 }
